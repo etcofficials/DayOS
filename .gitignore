@@ -14,3 +14,4 @@ __pycache__/
 *.db-wal
 *.db-shm
 release/
+.tools/
