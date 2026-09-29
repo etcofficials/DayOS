@@ -1,0 +1,16 @@
+.venv/
+.cache/
+build/
+dist/
+data/
+backups/
+exports/
+logs/
+tests/.tmp/
+__pycache__/
+*.pyc
+.claude/
+*.db
+*.db-wal
+*.db-shm
+release/

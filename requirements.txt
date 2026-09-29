@@ -1,0 +1,2 @@
+# Runtime dependency (Qt Core/Gui/Widgets/Svg only - no web engine, no QML)
+PySide6-Essentials==6.11.2

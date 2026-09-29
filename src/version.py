@@ -1,0 +1,3 @@
+APP_NAME = "DayOS"
+APP_VERSION = "1.0.0"
+ORGANIZATION = "ETC Labs"
