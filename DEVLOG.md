@@ -46,3 +46,41 @@ plugins (qwindows, qsvg, qsvgicon) bundled. Verification artefacts removed from
 
 Measured on this PC: running instance ≈82 MB working set / 50 MB private (dev
 build); packaged launch-to-window 1.24–1.37 s over three runs.
+
+## 2026-09-28 — 1.1.0: botanical redesign and single-file release
+
+**Design.** New token system (warm cream/sage light theme as the first-launch
+default, coordinated warm dark theme; spec colours kept for fills, darker text
+variants where the spec colours fell below 4.5:1). Georgia for editorial
+headings, Cambria for numbers (lining figures), Segoe UI for body text.
+Original procedural SVG artwork (`tools/make_art.py`): logo sprout, sidebar
+branch, window-and-plants vignette, landscape strip, corner leaves, sprig, pot;
+recoloured at runtime for the dark theme.
+
+**Motion.** `src/ui/anim.py` centralises durations/easing and the reduced-motion
+switch. Page cross-fade and theme cross-fade use a snapshot overlay that is
+transparent to the mouse (no input blocking); sidebar and segmented-control
+selection pills glide; animated buttons (hover/press), cards (hover lift, painted
+layered shadow — no blur effects), check marks, progress bars, focus ring
+colour/progress and completion pulse, dialog fade in/out, toast rise/fade,
+collapsible sections, empty-state fade-in.
+
+**Today** rebuilt to match the reference: header vignette + date/headline/
+greeting, intention banner (edit in place), A gentle plan, Your day timeline,
+Study nook (drives the Study page's single timer via a signal), Small rituals,
+Coming up (exams, deadlines, goals). Task completion defers list refresh 260 ms
+so the check animation finishes.
+
+**Packaging.** One-file windowed `dist/DayOS.exe` (26.4 MB, x64, GUI subsystem,
+version resource). Unused Qt parts trimmed (software OpenGL, translations,
+network/TLS plugins, extra image codecs). Data folder for the EXE: `DAYOS_HOME`
+→ `DayOS Data` beside the EXE → user-chosen folder (asked, remembered).
+`--self-test write|verify` drives real UI actions for release verification;
+`--debug` for diagnostics.
+
+**Verification.** 87 unit/UI tests pass. Packaged EXE: self-test write (pages,
+themes, task add+complete, note, study session, timer) and verify-after-relaunch
+(all persisted, integrity OK) both passed; first launch in a clean folder
+created `DayOS Data`, opened in the light theme with empty states; no database,
+log or personal data inside the EXE; temporary unpack folder removed on exit;
+launch-to-window 3.0–3.3 s; ≈85 MB working set.
