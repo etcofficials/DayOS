@@ -82,7 +82,7 @@ class NotesPage(Page):
         self._own_notify = False
         self._fresh_empty_ids: set[int] = set()
 
-        header = PageHeader("Notes", "Plain-text notes that save themselves as you type.")
+        header = PageHeader("Notes", "Plain-text notes that save themselves as you type.", eyebrow="Quiet thoughts")
         header.add_action(button("New note", "primary", "plus", self.new_item, "New note (Ctrl+N)"))
         self.root.addWidget(header)
 

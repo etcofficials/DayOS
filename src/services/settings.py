@@ -34,7 +34,7 @@ def _short_str(v: Any) -> bool:
 
 
 PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
-    "theme": ("system", _choice("system", "light", "dark")),
+    "theme": ("light", _choice("system", "light", "dark")),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),

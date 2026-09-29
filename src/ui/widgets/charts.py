@@ -262,35 +262,77 @@ class LineChart(QWidget):
 
 
 class ProgressRing(QWidget):
-    """Circular progress used for the focus timer."""
+    """Circular progress used for the focus timer.
 
-    def __init__(self, size: int = 260, parent: QWidget | None = None) -> None:
+    Small per-tick advances are drawn directly; large jumps (start, reset,
+    mode change) glide, the colour cross-fades between modes, and a finished
+    session gets one soft pulse.
+    """
+
+    def __init__(self, size: int = 260, parent: QWidget | None = None, thickness: float = 8.0) -> None:
         super().__init__(parent)
         self._fraction = 0.0
         self._color_key = "accent"
+        self._from_key = "accent"
+        self._color_mix = 1.0
+        self._pulse = 0.0
+        self._thickness = thickness
         self.setMinimumSize(size, size)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         theme.changed.connect(self.update)
 
-    def set_fraction(self, fraction: float, color_key: str = "accent") -> None:
-        fraction = max(0.0, min(1.0, fraction))
-        if abs(fraction - self._fraction) < 0.0005 and color_key == self._color_key:
-            return
-        self._fraction = fraction
-        self._color_key = color_key
+    def _set_fraction(self, v: float) -> None:
+        self._fraction = v
         self.update()
 
+    def _set_mix(self, v: float) -> None:
+        self._color_mix = v
+        self.update()
+
+    def _set_pulse(self, v: float) -> None:
+        self._pulse = v
+        self.update()
+
+    def set_fraction(self, fraction: float, color_key: str = "accent") -> None:
+        from src.ui.anim import tween
+
+        fraction = max(0.0, min(1.0, fraction))
+        if color_key != self._color_key:
+            self._from_key, self._color_key = self._color_key, color_key
+            tween(self, 0.0, 1.0, 260, self._set_mix, key="_mix_anim")
+        if abs(fraction - self._fraction) < 0.0005:
+            return
+        if abs(fraction - self._fraction) > 0.04:
+            tween(self, self._fraction, fraction, 320, self._set_fraction, key="_ring_anim")
+        else:
+            self._fraction = fraction
+            self.update()
+
+    def pulse(self) -> None:
+        from src.ui.anim import tween
+
+        tween(self, 1.0, 0.0, 900, self._set_pulse, key="_pulse_anim")
+
     def paintEvent(self, _event) -> None:  # noqa: N802
+        from src.ui.widgets.common import blend
+
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         side = min(self.width(), self.height()) - 16
         rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
-        track = QPen(theme.color("elevated") if theme.mode == "light" else theme.color("hover"), 8)
+        if self._pulse > 0:
+            glow = theme.color("accent")
+            glow.setAlphaF(0.35 * self._pulse)
+            p.setPen(QPen(glow, self._thickness + 10 * self._pulse))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(rect)
+        track = QPen(theme.color("accent_soft") if theme.mode == "light" else theme.color("hover"), self._thickness)
         track.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(track)
         p.drawEllipse(rect)
-        if self._fraction > 0:
-            pen = QPen(theme.color(self._color_key), 8)
+        if self._fraction > 0.0005:
+            color = blend(theme.color(self._from_key), theme.color(self._color_key), self._color_mix)
+            pen = QPen(color, self._thickness)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(pen)
             p.drawArc(rect, 90 * 16, int(-360 * 16 * self._fraction))

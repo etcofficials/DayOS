@@ -37,6 +37,7 @@ class TaskRow(QWidget):
         text.setSpacing(2)
         title = QLabel(task.title)
         title.setWordWrap(True)
+        title.setProperty("role", "rowtitle")
         if task.done:
             title.setProperty("strike", "true")
         text.addWidget(title)

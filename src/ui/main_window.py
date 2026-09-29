@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
+from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QButtonGroup,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -24,14 +26,18 @@ from src.context import AppContext
 from src.ui.bus import bus
 from src.ui.icons import bind_icon
 from src.ui.pages.base import Page
+from src.ui import anim
+from src.ui.anim import tween
 from src.ui.theme import theme
-from src.ui.widgets.common import Toast, label, show_info
+from src.ui.widgets.art import Art
+from src.ui.widgets.common import Toast, label, separator, show_info
+from src.ui.widgets.nav import NavItem, Sidebar
 from src.version import APP_NAME
 
 log = logging.getLogger(__name__)
 
-SIDEBAR_WIDE = 212
-SIDEBAR_NARROW = 64
+SIDEBAR_WIDE = 236
+SIDEBAR_NARROW = 74
 
 SHORTCUTS = [
     ("Ctrl+1 … Ctrl+9", "Go to Today, Tasks, Calendar, Study, Exams, Notes, Habits, Goals, Insights"),
@@ -50,7 +56,7 @@ SHORTCUTS = [
 
 
 def app_icon(paths) -> QIcon:
-    svg = paths.assets_dir / "dayos.svg"
+    svg = paths.assets_dir / "art" / "mark.svg"
     ico = paths.assets_dir / "dayos.ico"
     if ico.exists():
         return QIcon(str(ico))
@@ -63,7 +69,7 @@ class MainWindow(QMainWindow):
         self.ctx = ctx
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(app_icon(ctx.paths))
-        self.setMinimumSize(QSize(920, 620))
+        self.setMinimumSize(QSize(980, 660))
         self._closing_confirmed = False
 
         root = QWidget()
@@ -80,6 +86,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stack, 1)
 
         self.toast = Toast(root, reduce_motion=self.motion_reduced)
+        anim.set_motion_provider(lambda: not self.motion_reduced())
+        theme.about_to_change.connect(self._theme_crossfade)
         self.pages: dict[str, Page] = {}
         self._build_pages()
         self._install_shortcuts()
@@ -102,20 +110,17 @@ class MainWindow(QMainWindow):
     ]
 
     def _build_sidebar(self) -> QWidget:
-        side = QWidget()
-        side.setObjectName("Sidebar")
-        side.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        side = Sidebar()
         side.setFixedWidth(SIDEBAR_WIDE)
         lay = QVBoxLayout(side)
-        lay.setContentsMargins(12, 18, 12, 14)
-        lay.setSpacing(2)
+        lay.setContentsMargins(14, 20, 14, 16)
+        lay.setSpacing(3)
 
         brand_row = QHBoxLayout()
-        brand_row.setContentsMargins(6, 0, 0, 0)
-        brand_row.setSpacing(10)
-        self.logo = QLabel()
-        self.logo.setPixmap(self.windowIcon().pixmap(28, 28))
-        self.logo.setFixedSize(28, 28)
+        brand_row.setContentsMargins(4, 0, 0, 0)
+        brand_row.setSpacing(12)
+        self.logo = Art("mark", 46, 46, Qt.AlignmentFlag.AlignCenter)
+        self.logo.setFixedSize(46, 46)
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
         self.brand = QLabel(APP_NAME)
@@ -127,37 +132,48 @@ class MainWindow(QMainWindow):
         brand_row.addWidget(self.logo)
         brand_row.addLayout(brand_text, 1)
         lay.addLayout(brand_row)
-        lay.addSpacing(20)
+        lay.addSpacing(26)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        self.nav_buttons: dict[str, QToolButton] = {}
-        for i, (key, text, icon_name) in enumerate(self.NAV + [("settings", "Settings", "settings")]):
-            if key == "settings":
-                lay.addStretch(1)
-                self.timer_hint = label("", "caption", wrap=True)
-                self.timer_hint.setContentsMargins(10, 0, 6, 6)
-                self.timer_hint.hide()
-                lay.addWidget(self.timer_hint)
-            btn = QToolButton()
-            btn.setObjectName("NavButton")
-            btn.setText(text)
-            btn.setCheckable(True)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.setMinimumHeight(38)
-            btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            shortcut = "Ctrl+," if key == "settings" else f"Ctrl+{i + 1}"
-            btn.setToolTip(f"{text}  ({shortcut})")
-            btn.setAccessibleName(text)
-            bind_icon(btn, icon_name, "text2", 18, active_key="accent")
-            btn.clicked.connect(lambda _=False, k=key: self.navigate(k))
-            self.nav_group.addButton(btn)
-            self.nav_buttons[key] = btn
-            lay.addWidget(btn)
+        self.nav_buttons: dict[str, NavItem] = {}
 
+        def add_item(key: str, text: str, icon_name: str, shortcut: str) -> NavItem:
+            item = NavItem(text, icon_name)
+            item.setToolTip(f"{text}  ({shortcut})")
+            item.clicked.connect(lambda _=False, k=key: self.navigate(k))
+            self.nav_group.addButton(item)
+            self.nav_buttons[key] = item
+            return item
+
+        for i, (key, text, icon_name) in enumerate(self.NAV):
+            lay.addWidget(add_item(key, text, icon_name, f"Ctrl+{i + 1}"))
+
+        lay.addStretch(1)
+        self.branch = Art("branch", 150, 250, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, 0.9)
+        self.branch.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.quote = QLabel("Better days\nbuild a better you.")
+        self.quote.setObjectName("SidebarQuote")
+        self.quote.setContentsMargins(14, 0, 0, 18)
+        art_box = QWidget()
+        art_box.setMaximumHeight(260)
+        art_lay = QGridLayout(art_box)
+        art_lay.setContentsMargins(0, 0, 0, 0)
+        art_lay.addWidget(self.branch, 0, 0)
+        art_lay.addWidget(self.quote, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.art_box = art_box
+        lay.addWidget(art_box, 3)
+
+        self.timer_hint = label("", "caption", wrap=True)
+        self.timer_hint.setContentsMargins(12, 4, 6, 4)
+        self.timer_hint.hide()
+        lay.addWidget(self.timer_hint)
         lay.addSpacing(6)
+        lay.addWidget(separator())
+        lay.addSpacing(6)
+        bottom = QHBoxLayout()
+        bottom.setSpacing(4)
+        bottom.addWidget(add_item("settings", "Settings", "settings", "Ctrl+,"), 1)
         self.collapse_btn = QToolButton()
         self.collapse_btn.setObjectName("CollapseButton")
         self.collapse_btn.setToolTip("Collapse sidebar (Ctrl+B)")
@@ -166,38 +182,45 @@ class MainWindow(QMainWindow):
         self.collapse_btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         bind_icon(self.collapse_btn, "sidebar", "text3", 18)
         self.collapse_btn.clicked.connect(lambda: self.set_sidebar_collapsed(not self._collapsed))
-        row = QHBoxLayout()
-        row.setContentsMargins(4, 0, 0, 0)
-        row.addWidget(self.collapse_btn)
-        row.addStretch(1)
-        lay.addLayout(row)
+        bottom.addWidget(self.collapse_btn)
+        self.sidebar_bottom = bottom
+        lay.addLayout(bottom)
         self._collapsed = False
-        self._anim: QPropertyAnimation | None = None
         return side
 
     def set_sidebar_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         self._collapsed = collapsed
-        for key, btn in self.nav_buttons.items():
-            btn.setToolButtonStyle(
-                Qt.ToolButtonStyle.ToolButtonIconOnly if collapsed else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-            )
-        self.brand.setVisible(not collapsed)
-        self.brand_sub.setVisible(not collapsed)
+        for btn in self.nav_buttons.values():
+            btn.collapsed = collapsed
+            btn.update()
+        for w in (self.brand, self.brand_sub, self.art_box):
+            w.setVisible(not collapsed)
         self.timer_hint.setVisible(bool(self.timer_hint.text()) and not collapsed)
+        self.sidebar_bottom.setDirection(
+            QBoxLayout.Direction.TopToBottom if collapsed else QBoxLayout.Direction.LeftToRight)
         target = SIDEBAR_NARROW if collapsed else SIDEBAR_WIDE
         self.collapse_btn.setToolTip(("Expand" if collapsed else "Collapse") + " sidebar (Ctrl+B)")
-        if animate and not self.motion_reduced():
-            for prop in (b"minimumWidth", b"maximumWidth"):
-                anim = QPropertyAnimation(self.sidebar, prop, self)
-                anim.setDuration(160)
-                anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-                anim.setStartValue(self.sidebar.width())
-                anim.setEndValue(target)
-                anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        start = self.sidebar.width()
+
+        def step(v: float) -> None:
+            self.sidebar.setFixedWidth(int(v))
+            self.sidebar.resync()
+
+        if animate and self.isVisible():
+            tween(self, start, target, anim.MEDIUM, step, self.sidebar.resync, key="_sidebar_anim")
         else:
-            self.sidebar.setFixedWidth(target)
+            step(target)
+        QTimer.singleShot(0, self.sidebar.resync)
         if self.ctx.settings.get("sidebar_collapsed") != collapsed:
             self.ctx.settings.set("sidebar_collapsed", collapsed)
+
+    def _theme_crossfade(self) -> None:
+        if self.isVisible():
+            anim.snapshot_fade(self.centralWidget(), 300)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        QTimer.singleShot(0, self.sidebar.resync)
 
     def motion_reduced(self) -> bool:
         return bool(self.ctx.settings.get("reduce_motion")) or theme.system_reduced_motion
@@ -245,9 +268,13 @@ class MainWindow(QMainWindow):
         current = self.stack.currentWidget()
         if isinstance(current, Page) and current is not self.pages[key] and not current.can_leave():
             self.nav_buttons[self.current_key()].setChecked(True)
+            self.sidebar.select(self.nav_buttons[self.current_key()])
             return
+        if current is not self.pages[key] and self.isVisible():
+            anim.snapshot_fade(self.stack, anim.PAGE, drift=10)
         self.stack.setCurrentWidget(self.pages[key])
         self.nav_buttons[key].setChecked(True)
+        self.sidebar.select(self.nav_buttons[key], animate=self.isVisible())
         if not self.pages[key].isAncestorOf(QApplication.focusWidget()):
             self.pages[key].setFocus(Qt.FocusReason.OtherFocusReason)
 

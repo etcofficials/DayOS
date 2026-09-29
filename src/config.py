@@ -3,12 +3,17 @@
 Every persistent file DayOS writes lives under one *home* directory:
 
 * Development: the project folder (the parent of ``src``), e.g. ``G:\\DayOS``.
-* Packaged (PyInstaller): the folder that contains ``DayOS.exe``.
-* Override: the ``DAYOS_HOME`` environment variable (used by tests and portable setups).
+* Packaged ``DayOS.exe``, in order of preference:
 
-DayOS never silently relocates data to another drive. If the home directory is
-not writable, :func:`ensure_writable` raises :class:`DataDirectoryError` so the
-UI can explain the problem.
+  1. the ``DAYOS_HOME`` environment variable, if set;
+  2. a portable ``DayOS Data`` folder next to ``DayOS.exe`` (so replacing or
+     updating the EXE never touches your data);
+  3. a folder you picked earlier when the EXE's folder wasn't writable (the
+     choice is remembered in ``%LOCALAPPDATA%\\ETC Labs\\DayOS\\home.txt``).
+
+DayOS never silently relocates data. If the home directory is not writable,
+:func:`ensure_writable` raises :class:`DataDirectoryError` and the app asks the
+user where to keep data (or explains how to fix it).
 """
 
 from __future__ import annotations
@@ -36,12 +41,50 @@ def resource_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+PORTABLE_FOLDER = "DayOS Data"
+
+
+def pointer_file() -> Path:
+    """Where a user-chosen data folder is remembered (only written after the user picks one)."""
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "ETC Labs" / "DayOS" / "home.txt"
+
+
+def is_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def remembered_home() -> Path | None:
+    try:
+        text = pointer_file().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return Path(text) if text else None
+
+
+def remember_home(path: Path) -> None:
+    target = pointer_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(str(path), encoding="utf-8")
+
+
 def default_home() -> Path:
     override = os.environ.get("DAYOS_HOME")
     if override:
         return Path(override).resolve()
     if is_frozen():
-        return Path(sys.executable).resolve().parent
+        portable = Path(sys.executable).resolve().parent / PORTABLE_FOLDER
+        if portable.is_dir() or is_writable_dir(portable):
+            return portable
+        remembered = remembered_home()
+        return remembered if remembered is not None else portable
     return Path(__file__).resolve().parent.parent
 
 

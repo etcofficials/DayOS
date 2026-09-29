@@ -39,7 +39,7 @@ class InsightsPage(Page):
         outer = QVBoxLayout(content)
         outer.setContentsMargins(34, 28, 34, 28)
         outer.setSpacing(16)
-        self.header = PageHeader("Insights", "")
+        self.header = PageHeader("Insights", "", eyebrow="Looking back")
         self.range = SegmentBar(RANGES, "30")
         self.range.changed.connect(lambda _: self.refresh())
         self.header.add_action(self.range)

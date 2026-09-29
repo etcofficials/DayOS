@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QWidget
 
 from src.context import AppContext
@@ -22,7 +23,8 @@ class TaskActions:
     def toggle(self, task_id: int, done: bool) -> None:
         def run() -> None:
             self.ctx.tasks.set_completed(task_id, done)
-            bus.notify("tasks", "goals")
+            # Let the check-mark animation finish before lists rebuild.
+            QTimer.singleShot(260, lambda: bus.notify("tasks", "goals"))
 
         if guarded(self.parent, run, "Couldn't update the task"):
             if done:

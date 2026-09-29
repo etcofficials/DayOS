@@ -47,7 +47,9 @@ class UiSmokeTests(TempHomeTestCase):
         bus.notify("tasks")
         for _ in range(3):  # refresh is queued; new child widgets are shown on the next pass
             app.processEvents()
-        texts = [w.text() for w in today_page.tasks_card.findChildren(type(today_page.greeting)) if w.isVisible()]
+        from PySide6.QtWidgets import QLabel
+
+        texts = [w.text() for w in today_page.plan_card.findChildren(QLabel) if w.isVisible()]
         self.assertIn("Dashboard task", texts)
         self.assertIn("0 of 1 done", texts)
 

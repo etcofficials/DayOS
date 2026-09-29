@@ -236,7 +236,7 @@ class HabitsPage(Page):
         outer = QVBoxLayout(content)
         outer.setContentsMargins(34, 28, 34, 28)
         outer.setSpacing(16)
-        self.header = PageHeader("Habits", "")
+        self.header = PageHeader("Small rituals", "", eyebrow="Habits")
         self.show_archived = QCheckBox("Show archived")
         self.show_archived.toggled.connect(lambda _: self.refresh())
         self.header.add_action(self.show_archived)

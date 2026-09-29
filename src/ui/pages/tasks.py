@@ -19,6 +19,7 @@ from src.ui.dialogs import TaskDialog
 from src.ui.pages.base import Page
 from src.ui.task_actions import TaskActions
 from src.ui.widgets.common import (
+    Card,
     EmptyState,
     PageHeader,
     SearchField,
@@ -57,7 +58,7 @@ class TasksPage(Page):
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
         self.actions = TaskActions(ctx, self, lambda t, a, c: self.toast(t, a, c))
-        self.header = PageHeader("Tasks", "")
+        self.header = PageHeader("Tasks", "", eyebrow="A gentle plan")
         self.header.add_action(button("New task", "primary", "plus", self.new_item, "New task (Ctrl+N)"))
         self.root.addWidget(self.header)
 
@@ -100,7 +101,11 @@ class TasksPage(Page):
         self.empty_holder = QWidget()
         self.empty_layout = QHBoxLayout(self.empty_holder)
         self.stack.addWidget(self.empty_holder)
-        self.root.addWidget(self.body, 1)
+        self.list_card = Card(margins=14)
+        self.list_card.body.addWidget(self.body, 1)
+        self.list_card.layout().setStretch(0, 1)
+        self.list_card.layout().setStretch(1, 0)
+        self.root.addWidget(self.list_card, 1)
         self.footer = label("", "caption")
         self.root.addWidget(self.footer)
         self._rows: dict[int, TaskRow] = {}

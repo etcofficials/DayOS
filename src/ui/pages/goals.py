@@ -153,7 +153,7 @@ class GoalsPage(Page):
         super().__init__(ctx, window)
         self.actions = TaskActions(ctx, self, lambda t, a, c: self.toast(t, a, c))
         self.selected_id: int | None = None
-        header = PageHeader("Goals & reflection", "What you're working towards, and how your days are going.")
+        header = PageHeader("Goals & reflection", "What you're working towards, and how your days are going.", eyebrow="Growing slowly")
         header.add_action(button("New goal", "primary", "plus", self.new_item, "New goal (Ctrl+N)"))
         self.root.addWidget(header)
         self.tabs = QTabWidget()

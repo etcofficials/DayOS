@@ -214,7 +214,7 @@ class ExamsPage(Page):
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
         self.selected_id: int | None = None
-        header = PageHeader("Exams & revision", "Countdowns, chapter progress, revision and results.")
+        header = PageHeader("Exams & revision", "Countdowns, chapter progress, revision and results.", eyebrow="Prepare calmly")
         header.add_action(button("Subjects", "ghost", "subject", lambda: SubjectsDialog(self.ctx, self).exec()))
         header.add_action(button("New exam", "primary", "plus", self.new_item, "New exam (Ctrl+N)"))
         self.root.addWidget(header)

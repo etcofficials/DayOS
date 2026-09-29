@@ -331,7 +331,7 @@ class CalendarPage(Page):
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
-        header = PageHeader("Calendar", "Events, deadlines, exams and your weekly timetable in one place.")
+        header = PageHeader("Calendar", "Events, deadlines, exams and your weekly timetable in one place.", eyebrow="Your schedule")
         header.add_action(button("Weekly class", "", "plus", lambda: TimetableDialog(self.ctx, self).exec(),
                                  "Add a class that repeats every week"))
         header.add_action(button("New event", "primary", "plus", self.new_item, "New event (Ctrl+N)"))
@@ -385,9 +385,9 @@ class CalendarPage(Page):
         add_row.addWidget(button("Deadline", "", "plus", lambda: EventDialog(self.ctx, self, day=self.grid.selected_day, kind="deadline").exec()))
         add_row.addStretch(1)
         dl.addLayout(add_row)
-        day_panel.setMinimumWidth(280)
+        day_panel.setMinimumWidth(360)
         month.addWidget(day_panel)
-        month.setSizes([700, 320])
+        month.setSizes([680, 380])
         month.setStretchFactor(0, 1)
         self.views.addWidget(month)
 
@@ -461,11 +461,11 @@ class CalendarPage(Page):
         else:
             when = "All day" if item.kind != "task" else "Any time"
         t = label(when, "muted")
-        t.setMinimumWidth(96 if self.clock24 else 130)
+        t.setFixedWidth(84 if self.clock24 else 118)
         row.addWidget(t, 0, Qt.AlignmentFlag.AlignTop)
         col = QVBoxLayout()
         col.setSpacing(1)
-        title = label(item.title, wrap=True)
+        title = label(item.title, "rowtitle", wrap=True)
         if item.kind == "task" and item.detail == "Completed":
             title.setProperty("strike", "true")
         col.addWidget(title)

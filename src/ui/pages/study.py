@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -87,6 +87,7 @@ class CloseDialog(QDialog):
 class StudyPage(Page):
     domains = ("study", "subjects", "settings")
     title = "Study"
+    timer_changed = Signal()  # the dashboard's Study nook mirrors the one real timer
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
@@ -100,7 +101,8 @@ class StudyPage(Page):
         outer = QVBoxLayout(content)
         outer.setContentsMargins(34, 28, 34, 28)
         outer.setSpacing(16)
-        header = PageHeader("Study", "A calm focus timer and an honest record of your study time.")
+        header = PageHeader("Study nook", "A calm focus timer and an honest record of your study time.",
+                            eyebrow="Focus & study time")
         header.add_action(button("Subjects", "ghost", "subject", lambda: SubjectsDialog(self.ctx, self).exec()))
         header.add_action(button("Log session", "", "plus", lambda: ManualStudyDialog(self.ctx, self, self.subject.current_id()).exec(),
                                  "Record a session you did without the timer"))
@@ -113,7 +115,8 @@ class StudyPage(Page):
 
         # -- timer card
         self.timer_card = Card("Focus timer", "study")
-        self.mode = SegmentBar([(FOCUS, "Focus"), (SHORT_BREAK, "Short break"), (LONG_BREAK, "Long break")])
+        self.mode = SegmentBar([(FOCUS, "Focus"), (SHORT_BREAK, "Short break"), (LONG_BREAK, "Long break")],
+                               style="accent")
         self.mode.changed.connect(self._mode_changed)
         self.timer_card.body.addWidget(self.mode, 0, Qt.AlignmentFlag.AlignHCenter)
         ring_holder = QWidget()
@@ -417,6 +420,7 @@ class StudyPage(Page):
         self.notice.setText(message)
         self.notice.show()
         self._update_controls()
+        self.ring.pulse()
         self._notify_desktop(message)
         _flash_taskbar(self)
 
@@ -449,6 +453,7 @@ class StudyPage(Page):
         elif t.state == "paused":
             hint = f"{MODE_LABELS[t.mode]} paused · {text} left"
         self.main.set_timer_hint(hint)
+        self.timer_changed.emit()
 
     def _update_controls(self) -> None:
         state = self.timer.state
@@ -456,15 +461,41 @@ class StudyPage(Page):
 
         if state == "running":
             self.start_btn.setText("Pause")
-            bind_icon(self.start_btn, "pause", "on_accent", 16)
+            bind_icon(self.start_btn, "pause", "on_primary", 16)
         else:
             self.start_btn.setText("Resume" if state == "paused" else "Start")
-            bind_icon(self.start_btn, "play", "on_accent", 16)
+            bind_icon(self.start_btn, "play", "on_primary", 16)
         active = self.timer.is_active
         self.reset_btn.setEnabled(active)
         self.finish_btn.setEnabled(active)
         self.subject.setEnabled(not active)
         self.minutes.setEnabled(not active)
+        self.timer_changed.emit()
+
+    # -- public API used by the Today dashboard ------------------------------------
+    def start_pause(self) -> None:
+        self._start_pause()
+
+    def choose_mode(self, mode: str) -> None:
+        if mode != self.timer.mode or not self.timer.is_active:
+            self._mode_changed(mode)
+
+    def choose_subject(self, subject_id: int | None) -> None:
+        if not self.timer.is_active:
+            self.subject.set_current_id(subject_id)
+
+    def dashboard_state(self) -> dict:
+        t = self.timer
+        remaining = t.remaining() if t.state != "idle" else t.duration_s
+        return {
+            "text": _mmss(remaining),
+            "fraction": t.elapsed() / t.duration_s if t.duration_s and t.state != "idle" else 0.0,
+            "state": t.state,
+            "mode": t.mode,
+            "mode_label": MODE_LABELS[t.mode],
+            "active": t.is_active,
+            "subject_id": self.subject.current_id(),
+        }
 
     def timer_summary(self) -> str:
         t = self.timer

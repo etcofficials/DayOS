@@ -67,7 +67,7 @@ class SettingsPage(Page):
         outer = QVBoxLayout(content)
         outer.setContentsMargins(34, 28, 34, 28)
         outer.setSpacing(16)
-        outer.addWidget(PageHeader("Settings", "Preferences are saved instantly. Your data stays on this computer."))
+        outer.addWidget(PageHeader("Settings", "Preferences are saved instantly. Your data stays on this computer.", eyebrow="Make it yours"))
         grid = ResponsiveGrid((820, 1700))
         outer.addWidget(grid)
         outer.addStretch(1)
