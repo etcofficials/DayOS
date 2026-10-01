@@ -22,6 +22,10 @@ FEATURES = [
     "src.modules.clipvault",
     "src.modules.filepilot",
     "src.modules.audiodock",
+    "src.modules.briefing",
+    "src.modules.money",
+    "src.modules.skills",
+    "src.modules.projects",
 ]
 
 _loaded: list = []

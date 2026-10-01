@@ -606,6 +606,8 @@ class TodayPage(Page):
         self.cards[key] = card
         self.extra_widgets[key] = (card, fill)
         card.hide()
+        self._apply_widgets()
+        self.mark_dirty()
 
     def _apply_widgets(self) -> None:
         keys = self.widget_keys()

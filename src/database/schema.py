@@ -555,13 +555,35 @@ def _migrate_v7(db: Database) -> None:
                    "VALUES (?, ?, ?, ?, ?, ?)", (name, kind, comms, notes, position, now_stamp()))
 
 
+def _migrate_v8(db: Database) -> None:
+    """News read state, the money tracker (with starter categories) and skill roadmaps."""
+    from src.modules.briefing.schema import SCHEMA_V8_BRIEFING
+    from src.modules.money.schema import DEFAULT_CATEGORIES, SCHEMA_V8_MONEY, SEARCH_SOURCES_V8_MONEY
+    from src.modules.skills.schema import SCHEMA_V8_SKILLS, SEARCH_SOURCES_V8_SKILLS
+    from src.services.dates import now_stamp
+
+    for statement in [SCHEMA_V8_BRIEFING] + _split_sql(SCHEMA_V8_MONEY) + _split_sql(SCHEMA_V8_SKILLS):
+        db.execute(statement)
+    for kind, names in DEFAULT_CATEGORIES.items():
+        for position, name in enumerate(names, start=1):
+            db.execute("INSERT INTO money_categories (name, kind, position, created_at) VALUES (?, ?, ?, ?)",
+                       (name, kind, position, now_stamp()))
+    for source in SEARCH_SOURCES_V8_MONEY + SEARCH_SOURCES_V8_SKILLS:
+        for statement in search_triggers(*source):
+            db.execute(statement)
+        db.execute(search_backfill(*source))
+
+
 def _all_search_sources() -> list:
     """The current definition of every search source; a later migration's definition of a table wins."""
     from src.modules.brain.schema import SEARCH_SOURCES_V5
+    from src.modules.money.schema import SEARCH_SOURCES_V8_MONEY
+    from src.modules.skills.schema import SEARCH_SOURCES_V8_SKILLS
     from src.modules.studyforge.schema import SEARCH_SOURCES_V4
 
     by_table: dict[str, tuple] = {}
-    for source in list(SEARCH_SOURCES_V3) + list(SEARCH_SOURCES_V4) + list(SEARCH_SOURCES_V5):
+    for source in (list(SEARCH_SOURCES_V3) + list(SEARCH_SOURCES_V4) + list(SEARCH_SOURCES_V5)
+                   + SEARCH_SOURCES_V8_MONEY + SEARCH_SOURCES_V8_SKILLS):
         by_table[source[0]] = source
     return list(by_table.values())
 
@@ -577,6 +599,7 @@ MIGRATIONS: list[tuple[int, Migration]] = [
     (5, _migrate_v5),
     (6, _migrate_v6),
     (7, _migrate_v7),
+    (8, _migrate_v8),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

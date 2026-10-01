@@ -66,6 +66,22 @@ def _hhmm(v: Any) -> bool:
         return False
 
 
+def _opt_place(v: Any) -> bool:
+    keys = {"name", "region", "country", "lat", "lon", "timezone"}
+    return v is None or (isinstance(v, dict) and set(v) <= keys and {"name", "lat", "lon"} <= set(v)
+                         and all(isinstance(x, str) and len(x) <= 80 for x in v.values()))
+
+
+def _feed_list(v: Any) -> bool:
+    return isinstance(v, list) and len(v) <= 30 and all(
+        isinstance(f, dict) and set(f) == {"name", "url", "topic"} and all(isinstance(x, str) for x in f.values())
+        and len(f["name"]) <= 120 and len(f["url"]) <= 500 and len(f["topic"]) <= 40 for f in v)
+
+
+def _currency(v: Any) -> bool:
+    return isinstance(v, str) and (v == "" or (len(v) == 3 and v.isalpha() and v.isupper()))
+
+
 THEME_CHOICES = ("system", "paper", "midnight", "zen", "aurora", "espresso", "light", "dark")
 FONT_SCALES = (0.9, 1.0, 1.1, 1.25)
 PROFILE_CHOICES = ("general", "school", "college", "learner", "developer", "professional", "creator")
@@ -112,6 +128,18 @@ PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
     "filepilot.large_mb": (100, _int_range(1, 100000)),
     "filepilot.dup_min_kb": (64, _int_range(0, 1048576)),
     "filepilot.include_hidden": (False, _bool),
+    # Weather & news (online, off until the user turns them on)
+    "weather.enabled": (False, _bool),
+    "weather.place": (None, _opt_place),
+    "weather.units": ("metric", _choice("metric", "imperial")),
+    "weather.refresh_minutes": (60, _int_range(30, 720)),
+    "news.enabled": (False, _bool),
+    "news.topics": ([], _str_list(20, 40)),
+    "news.custom_feeds": ([], _feed_list),
+    "news.hidden_sources": ([], _str_list(100, 120)),
+    "news.refresh_minutes": (180, _int_range(60, 1440)),
+    # Money (manual tracker); "" until the user picks a currency
+    "money.currency": ("", _currency),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),

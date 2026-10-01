@@ -49,6 +49,9 @@ TABLE_ORDER = [
     "fp_scans", "fp_operations",
     # AudioDock
     "ad_profiles",
+    # Briefing, money, skills
+    "news_read", "money_categories", "subscriptions", "money_entries", "money_budgets", "savings_goals",
+    "skills", "skill_prereqs", "skill_items", "skill_logs",
 ]
 NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
 NOT_EXPORTED_PREFIXES = ("search_index",)
