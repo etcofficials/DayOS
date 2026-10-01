@@ -340,6 +340,11 @@ class SecondBrain:
                 url = normalize_url(meta.get("url", ""))
             except ValidationError:
                 url = ""
+            body = body[:MAX_CONTENT]
+            if self.db.scalar("SELECT 1 FROM notes WHERE title = ? AND content = ?", (title[:200].strip(),
+                                                                                     body.strip())):
+                report.skipped.append((path.name, "already in SecondBrain (same title and text)"))
+                continue
             target = collection_id
             if target is None and meta.get("collection"):
                 target = self.collections.find_or_create(meta["collection"][:60])

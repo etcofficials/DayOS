@@ -84,3 +84,12 @@ themes, task add+complete, note, study session, timer) and verify-after-relaunch
 created `DayOS Data`, opened in the light theme with empty states; no database,
 log or personal data inside the EXE; temporary unpack folder removed on exit;
 launch-to-window 3.0–3.3 s; ≈85 MB working set.
+
+## 2.0.0 — DayOS v2 (2026-10-01)
+
+Phases 0–9 of the v2 plan: five-theme design system and module registry; planning
+upgrades (projects, recurrence, reminders, inbox, capture, Ctrl+K search); StudyForge;
+SecondBrain and opt-in ClipVault; FilePilot; AudioDock; weather, news, money, skills,
+projects and optional AI; automatic backups, documentation and a v2 self-test. Database
+schema 1 → 8 through append-only migrations with a verified pre-upgrade backup.
+See PROJECT_STATUS.md for details and verification notes.

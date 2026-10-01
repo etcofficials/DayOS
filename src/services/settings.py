@@ -143,6 +143,9 @@ PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
     # Optional AI ("" = off). The API key itself is never a setting (Credential Manager only).
     "ai.provider": ("", _choice("", "anthropic")),
     "ai.model": ("claude-opus-5-5", _choice("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5")),
+    # Automatic backups
+    "backup.auto": ("weekly", _choice("off", "daily", "weekly")),
+    "backup.keep": (10, _int_range(2, 100)),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),

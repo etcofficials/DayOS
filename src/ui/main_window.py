@@ -166,6 +166,7 @@ class MainWindow(QMainWindow):
         install_ui(self)
         self._register_hotkeys()
         self.notifier.start()
+        QTimer.singleShot(20000, self, self.run_auto_backup)  # after start-up settles; work runs off the UI thread
         self.navigate("today")
 
     # -- sidebar -------------------------------------------------------------
@@ -337,6 +338,20 @@ class MainWindow(QMainWindow):
             self._register_hotkeys()
 
     # -- shell: palette, capture, notifications, hotkeys -----------------------------
+    def run_auto_backup(self) -> None:
+        """Take an automatic backup in the background if one is due (see Settings → Data & backups)."""
+        from src.services import autobackup
+        from src.ui.worker import run_in_background
+
+        interval = str(self.ctx.settings.get("backup.auto"))
+        keep = int(self.ctx.settings.get("backup.keep"))
+        paths = self.ctx.paths
+        if not autobackup.is_due(paths.backups_dir, interval):
+            return
+        run_in_background(lambda: autobackup.run(paths.db_path, paths.backups_dir, interval, keep),
+                          lambda p: log.info("Automatic backup %s", "written" if p else "not needed"),
+                          lambda e: log.warning("Automatic backup failed: %s", e))
+
     def add_global_hotkey(self, name: str, sequence, handler, setting_keys: tuple[str, ...] = ()) -> None:
         """Let a feature claim a system-wide shortcut.
 

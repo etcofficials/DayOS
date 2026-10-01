@@ -28,6 +28,26 @@ log = logging.getLogger("dayos.selftest")
 TASK_TITLE = "Self-test task"
 NOTE_TITLE = "Self-test note"
 NOTE_BODY = "Written by the DayOS self-test."
+FINAL_THEME = "zen"
+V2_COURSE = "Self-test course"
+V2_BOOKMARK = "Self-test bookmark"
+V2_SNIPPET = "Self-test snippet"
+V2_MONEY = "self-test expense"
+V2_SKILL = "Self-test skill"
+
+
+def _v2_persisted(ctx) -> bool:
+    db = ctx.db
+    return all((
+        db.scalar("SELECT COUNT(*) FROM sf_courses WHERE name = ?", (V2_COURSE,)) == 1,
+        db.scalar("SELECT COUNT(*) FROM sf_questions WHERE text LIKE 'The self-test%'") == 1,
+        db.scalar("SELECT COUNT(*) FROM notes WHERE kind = 'bookmark' AND title = ?", (V2_BOOKMARK,)) == 1,
+        db.scalar("SELECT COUNT(*) FROM cv_entries WHERE title = ?", (V2_SNIPPET,)) == 1,
+        db.scalar("SELECT COUNT(*) FROM money_entries WHERE note = ? AND amount = 12345", (V2_MONEY,)) == 1,
+        db.scalar("SELECT COUNT(*) FROM skill_logs l JOIN skills s ON s.id = l.skill_id WHERE s.name = ?",
+                  (V2_SKILL,)) == 1,
+        ctx.search.search("self-test bookmark") != [],
+    ))
 
 
 def _wait(ms: int) -> None:
@@ -49,22 +69,65 @@ def run(window, phase: str, done: Callable[[int], None]) -> None:
 
     if phase == "write":
         def pages() -> bool:
-            for key in window.pages:
+            from src.modules import registry
+
+            keys = [m.key for m in registry.MODULES] + ["settings"]
+            for key in keys:
                 window.navigate(key)
-                _wait(320)
+                _wait(250)
+                if window.stack.currentWidget() is not window.page(key):
+                    return False
             window.navigate("today")
-            _wait(320)
+            _wait(250)
             return window.stack.currentWidget() is window.pages["today"]
 
         def themes() -> bool:
-            ctx.settings.set("theme", "dark")
-            _wait(400)
             from src.ui.theme import theme
 
-            dark_ok = theme.mode == "dark"
-            ctx.settings.set("theme", "light")
-            _wait(400)
-            return dark_ok and theme.mode == "light"
+            modes = {}
+            for theme_id in ("midnight", "zen", "aurora", "espresso", "paper", FINAL_THEME):
+                ctx.settings.set("theme", theme_id)  # applied live through the settings listener
+                _wait(300)
+                modes[theme_id] = theme.mode
+            return modes == {"midnight": "dark", "zen": "light", "aurora": "dark", "espresso": "dark",
+                             "paper": "light"}
+
+        def bundled_libraries() -> bool:
+            import pypdf  # noqa: F401 - StudyForge PDF import
+            from PySide6 import QtSvg  # noqa: F401 - icons and art
+
+            import anthropic  # noqa: F401 - optional AI (imported only when used)
+            return True
+
+        def v2_records() -> bool:
+            sf = ctx.services["studyforge"]
+            course = sf.courses.create(V2_COURSE)
+            chapter = sf.courses.add_node(course, "chapter", "Self-test chapter")
+            sf.bank.add(course, "tf", "The self-test can write questions.", node_id=chapter, answer="true")
+            ctx.services["brain"].add_bookmark("https://example.com/dayos-self-test", V2_BOOKMARK)
+            ctx.services["clipvault"].add("self-test snippet", kind="text", title=V2_SNIPPET)
+            from src.modules.money.repository import MoneyRepository
+            from src.services.dates import today
+
+            MoneyRepository(ctx.db).add_entry("expense", 12345, today(), note=V2_MONEY)
+            from src.modules.skills.repository import SkillRepository
+
+            skill = SkillRepository(ctx.db).save(None, name=V2_SKILL)
+            SkillRepository(ctx.db).log(skill, "practice", 15, "self-test")
+            return True
+
+        def filepilot_scan() -> bool:
+            from src.modules.filepilot import scanner
+            from src.modules.filepilot.duplicates import find_duplicates
+
+            folder = ctx.paths.home / "selftest-files"
+            (folder / "a").mkdir(parents=True, exist_ok=True)
+            (folder / "b").mkdir(parents=True, exist_ok=True)
+            (folder / "a" / "one.txt").write_bytes(b"same bytes" * 200)
+            (folder / "b" / "two.txt").write_bytes(b"same bytes" * 200)
+            result = scanner.scan([str(folder)])
+            groups = find_duplicates(result.files)
+            return len(result.files) == 2 and len(groups) == 1
 
         def add_and_complete_task() -> bool:
             today_page = window.pages["today"]
@@ -107,14 +170,19 @@ def run(window, phase: str, done: Callable[[int], None]) -> None:
             study._reset()
             return running and paused and study.timer.state == "idle"
 
-        for name, fn in (("pages", pages), ("themes", themes), ("task", add_and_complete_task),
-                         ("note", save_note), ("study_session", log_study), ("focus_timer", focus_timer)):
+        for name, fn in (("pages", pages), ("themes", themes), ("bundled_libraries", bundled_libraries),
+                         ("task", add_and_complete_task), ("note", save_note), ("study_session", log_study),
+                         ("focus_timer", focus_timer), ("v2_records", v2_records),
+                         ("filepilot_scan", filepilot_scan)):
             check(name, fn)
     else:
         check("task_persisted", lambda: any(t.title == TASK_TITLE and t.done for t in ctx.tasks.list("all")))
         check("note_persisted", lambda: any(n.title == NOTE_TITLE and n.content == NOTE_BODY for n in ctx.notes.list()))
         check("study_persisted", lambda: any(s.note == "self-test" for s in ctx.study.history()))
-        check("theme_persisted", lambda: ctx.settings.get("theme") == "light")
+        check("theme_persisted", lambda: ctx.settings.get("theme") == FINAL_THEME)
+        check("v2_records_persisted", lambda: _v2_persisted(ctx))
+        check("schema_latest", lambda: ctx.db.user_version == __import__(
+            "src.database.schema", fromlist=["LATEST_VERSION"]).LATEST_VERSION)
         check("database_healthy", lambda: ctx.db.integrity_check() == [])
 
     ok = all(v is True for v in results.values())

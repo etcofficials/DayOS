@@ -128,6 +128,11 @@ class SecondBrainTests(TempHomeTestCase):
         self.assertEqual(files, ["Recipes/Pasta the best.md", "_CON.md"])
         again = self.brain.export_markdown(self.paths.exports_dir)
         self.assertNotEqual(again.folder, report.folder)
+        again_import = self.brain.import_files(list(report.folder.rglob("*.md")))
+        self.assertEqual(len(again_import.created), 0)  # importing the same notes twice adds nothing
+        self.assertTrue(all("already in SecondBrain" in why for _n, why in again_import.skipped))
+        for note in self.ctx.notes.list():
+            self.ctx.notes.delete(note.id)
         before = self.ctx.notes.count()
         imported = self.brain.import_files(list(report.folder.rglob("*.md")) + [self.home / "x.pdf"])
         self.assertEqual(len(imported.created), 2)

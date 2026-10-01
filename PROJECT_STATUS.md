@@ -67,7 +67,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 5 | FilePilot | DONE (see below) |
 | 6 | AudioDock | DONE (see below) |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | DONE (see below) |
-| 8 | Integration and hardening | NOT STARTED |
+| 8 | Integration and hardening | DONE (see below) |
 | 9 | Windows build and GitHub release | NOT STARTED |
 
 Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
@@ -205,13 +205,25 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
     * `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) is on for Opus and Sonnet, and refusals are handled.
     * Features: note summary and tags, project task suggestions, and StudyForge practice questions (saved as `ai`, not verified).
     * No live AI call has been made: no key is configured on this machine.
+* **Phase 8**
+  * Automatic backups (`src/services/autobackup.py`): weekly by default, daily or off, run on a worker thread 20 s after start-up. Only `-auto` backups are rotated (keep N); manual and safety backups are never removed.
+  * SecondBrain imports skip notes that already exist (same title and text).
+  * Focus sessions can be linked to a StudyForge topic (`study_sessions.node_id`).
+  * Migration of a copy of the real dev database (schema 1 → 8) is tested.
+  * Repository hygiene test: no databases, logs or secrets are tracked.
+  * The self-test covers every page, all five themes, bundled pypdf and anthropic, StudyForge, SecondBrain, ClipVault, money and skills records, and a FilePilot scan.
+  * Docs: README, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, `docs/DATA_AND_PRIVACY.md`, `docs/THEMES.md`, fresh screenshots.
+  * Version 2.0.0.
+  * Start-up measured from source on this PC (`tools/measure_startup.py`, Windows platform, empty database):
+    * imports 0.70 s, then database plus window shown 1.43 s;
+    * 18 pages each first visited in at most 0.45 s;
+    * 140 MB working set after visiting every page.
 * Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
-* **Tests:** 231 automated tests pass.
+* **Tests:** see Latest test results below.
 
 ## Next concrete tasks
 
-1. Phase 8: hardening and documentation.
-2. Phase 9:
+1. Phase 9:
    * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
    * Push, publish the v2.0.0 release and verify the asset.
 

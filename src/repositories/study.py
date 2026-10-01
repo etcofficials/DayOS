@@ -34,6 +34,7 @@ class StudyRepository(Repository):
         task_id: int | None = None,
         project_id: int | None = None,
         kind: str = "study",
+        node_id: int | None = None,
     ) -> bool:
         """Save a session. Returns False if this session was already saved.
 
@@ -55,8 +56,8 @@ class StudyRepository(Repository):
                 """
                 INSERT OR IGNORE INTO study_sessions
                     (session_uid, subject_id, date, started_at, ended_at, planned_minutes,
-                     actual_seconds, completed, source, note, task_id, project_id, kind)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     actual_seconds, completed, source, note, task_id, project_id, kind, node_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_uid,
@@ -72,6 +73,7 @@ class StudyRepository(Repository):
                     optional_id(task_id),
                     optional_id(project_id),
                     kind,
+                    optional_id(node_id),
                 ),
             )
             saved = cur.rowcount == 1

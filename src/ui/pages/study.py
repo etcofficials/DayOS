@@ -177,6 +177,10 @@ class StudyPage(Page):
         self.project_combo = IdCombo("No project")
         self.project_combo.setAccessibleName("Project this session is for")
         link_row.addWidget(self.project_combo, 1)
+        self.topic_combo = IdCombo("No course topic")
+        self.topic_combo.setAccessibleName("StudyForge course topic this session is for")
+        self.topic_combo.setToolTip("Link the session to a StudyForge chapter or topic.")
+        link_row.addWidget(self.topic_combo, 1)
         self.kind_combo = QComboBox()
         for key, text in SESSION_KINDS.items():
             self.kind_combo.addItem(text, key)
@@ -251,6 +255,8 @@ class StudyPage(Page):
         self.task_combo.set_items([(t.id, t.title[:70]) for t in open_tasks])
         self.project_combo.set_items(self.ctx.projects.choices())
         self.project_combo.setVisible(self.project_combo.count() > 1)
+        self.topic_combo.set_items(self._topic_choices())
+        self.topic_combo.setVisible(self.topic_combo.count() > 1)
         ref = today()
         ws = week_start(ref, self.week_start)
         daily = self.ctx.study.daily_seconds(ws, ws + timedelta(days=6))
@@ -376,6 +382,7 @@ class StudyPage(Page):
             uid = new_session_uid() if mode == FOCUS else None
             self.timer.start(self.minutes.value() * 60, mode, uid, self.subject.current_id())
             self.timer.extra = {"task_id": self.task_combo.current_id(), "project_id": self.project_combo.current_id(),
+                                "node_id": self.topic_combo.current_id(),
                                 "kind": self.kind_combo.currentData(), "note": self.session_note.text().strip()}
             self._break_hinted = False
             self._last_tick_clock = None
@@ -433,7 +440,7 @@ class StudyPage(Page):
             session_uid=t.session_uid, subject_id=t.subject_id, started_at=t.started_wall,
             actual_seconds=seconds, planned_minutes=t.duration_s // 60, completed=completed, source=source,
             note=note, task_id=extra.get("task_id"), project_id=extra.get("project_id"),
-            kind=extra.get("kind") or "study",
+            kind=extra.get("kind") or "study", node_id=self._existing_node(extra.get("node_id")),
         ), "Couldn't save the study session")
         if ok:
             self._clear_checkpoint()
@@ -567,6 +574,28 @@ class StudyPage(Page):
             w.setVisible(not on)
         self.focus_mode_btn.setText("Leave focus mode" if on else "Focus mode")
 
+    def _topic_choices(self) -> list[tuple[int, str]]:
+        """StudyForge chapters and topics of active courses, as "Course › Topic"."""
+        try:
+            rows = self.ctx.db.query(
+                "SELECT n.id, c.name, n.title FROM sf_nodes n JOIN sf_courses c ON c.id = n.course_id "
+                "WHERE c.status = 'active' AND n.kind IN ('unit', 'chapter', 'topic') "
+                "ORDER BY c.name COLLATE NOCASE, n.position, n.id LIMIT 300")
+        except Exception:  # StudyForge tables missing: simply no topics to offer
+            return []
+        return [(int(r[0]), f"{r[1]} › {r[2]}"[:80]) for r in rows]
+
+    def _existing_node(self, node_id) -> int | None:
+        if not node_id:
+            return None
+        return int(node_id) if self.ctx.db.scalar("SELECT 1 FROM sf_nodes WHERE id = ?", (node_id,)) else None
+
+    def link_topic(self, node_id: int) -> None:
+        """Pre-select a StudyForge topic for the next focus session (used by StudyForge)."""
+        self.topic_combo.set_items(self._topic_choices())
+        self.topic_combo.setVisible(self.topic_combo.count() > 1)
+        self.topic_combo.set_current_id(node_id)
+
     def link_task(self, task_id: int) -> None:
         """Pre-select a task for the next session (e.g. 'Focus on this' from a task)."""
         if not self.timer.is_active:
@@ -657,6 +686,7 @@ class StudyPage(Page):
                 session_uid=uid, subject_id=subject.id if subject else None, started_at=started,
                 actual_seconds=int(elapsed), planned_minutes=duration // 60 or None,
                 completed=elapsed >= duration > 0, source="recovered", task_id=task_id, project_id=project_id,
+                node_id=self._existing_node(extra.get("node_id")),
                 kind=extra.get("kind") if extra.get("kind") in SESSION_KINDS else "study",
                 note=str(extra.get("note") or "")[:500]))
             if ok:

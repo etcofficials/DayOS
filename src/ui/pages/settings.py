@@ -718,9 +718,27 @@ class SettingsPage(Page):
         row.addWidget(button("Check database health", "ghost", "check", self._integrity))
         row.addStretch(1)
         body.addLayout(row)
-        body.addWidget(label("Backups are never deleted automatically. Restoring first saves a copy of your current "
-                             "data. DayOS also takes a verified backup before every database upgrade.",
-                             "caption", wrap=True))
+        auto_row = QHBoxLayout()
+        auto_row.addWidget(label("Automatic backup", "muted"))
+        self.auto_backup = QComboBox()
+        self.auto_backup.setAccessibleName("Automatic backup")
+        for key, text in (("off", "Off"), ("daily", "Once a day"), ("weekly", "Once a week")):
+            self.auto_backup.addItem(text, key)
+        self.auto_backup.activated.connect(lambda _i: self.set_pref("backup.auto", self.auto_backup.currentData()))
+        auto_row.addWidget(self.auto_backup)
+        auto_row.addWidget(label("keep the newest", "muted"))
+        self.auto_keep = QSpinBox()
+        self.auto_keep.setRange(2, 100)
+        self.auto_keep.setSuffix(" automatic backups")
+        self.auto_keep.setAccessibleName("Automatic backups to keep")
+        self.auto_keep.valueChanged.connect(lambda v: self.set_pref("backup.keep", int(v)))
+        auto_row.addWidget(self.auto_keep)
+        auto_row.addStretch(1)
+        body.addLayout(auto_row)
+        body.addWidget(label("Only older automatic backups are removed, keeping the number you choose. Backups you "
+                             "make yourself, and the safety copies DayOS takes before every upgrade, import and "
+                             "restore, are never deleted automatically. Restoring first saves a copy of your current "
+                             "data.", "caption", wrap=True))
         lay.addWidget(self.backup_card)
 
         card = Card("Export & import", "folder")
@@ -747,6 +765,8 @@ class SettingsPage(Page):
     def _fill_backups(self) -> None:
         if not hasattr(self, "backup_list"):
             return
+        self.auto_backup.setCurrentIndex(max(0, self.auto_backup.findData(self.ctx.settings.get("backup.auto"))))
+        self.auto_keep.setValue(int(self.ctx.settings.get("backup.keep")))
         clear_layout(self.backup_list)
         backups = list_backups(self.ctx.paths.backups_dir)
         if not backups:
