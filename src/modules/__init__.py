@@ -21,6 +21,7 @@ FEATURES = [
     "src.modules.brain",
     "src.modules.clipvault",
     "src.modules.filepilot",
+    "src.modules.audiodock",
 ]
 
 _loaded: list = []

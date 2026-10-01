@@ -543,6 +543,18 @@ def _migrate_v6(db: Database) -> None:
         db.execute(statement)
 
 
+def _migrate_v7(db: Database) -> None:
+    """AudioDock: saved audio profiles, with four starting profiles (no devices chosen yet)."""
+    from src.modules.audiodock.schema import SCHEMA_V7_AUDIO, STARTER_PROFILES
+
+    db.execute(SCHEMA_V7_AUDIO)
+    from src.services.dates import now_stamp
+
+    for position, (name, kind, comms, notes) in enumerate(STARTER_PROFILES, start=1):
+        db.execute("INSERT INTO ad_profiles (name, kind, communications, notes, position, created_at) "
+                   "VALUES (?, ?, ?, ?, ?, ?)", (name, kind, comms, notes, position, now_stamp()))
+
+
 def _all_search_sources() -> list:
     """The current definition of every search source; a later migration's definition of a table wins."""
     from src.modules.brain.schema import SEARCH_SOURCES_V5
@@ -564,6 +576,7 @@ MIGRATIONS: list[tuple[int, Migration]] = [
     (4, _migrate_v4),
     (5, _migrate_v5),
     (6, _migrate_v6),
+    (7, _migrate_v7),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

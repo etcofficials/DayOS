@@ -47,6 +47,8 @@ TABLE_ORDER = [
     "cv_rules", "cv_entries",
     # FilePilot
     "fp_scans", "fp_operations",
+    # AudioDock
+    "ad_profiles",
 ]
 NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
 NOT_EXPORTED_PREFIXES = ("search_index",)

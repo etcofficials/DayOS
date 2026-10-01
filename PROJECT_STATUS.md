@@ -65,7 +65,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 3 | StudyForge | DONE (see below) |
 | 4 | SecondBrain and ClipVault | DONE (see below) |
 | 5 | FilePilot | DONE (see below) |
-| 6 | AudioDock | NOT STARTED |
+| 6 | AudioDock | DONE (see below) |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | NOT STARTED |
 | 8 | Integration and hardening | NOT STARTED |
 | 9 | Windows build and GitHub release | NOT STARTED |
@@ -162,15 +162,31 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
     * Each result is recorded as it happens, on the worker's own connection.
     * Moves can be undone from History; undo never overwrites either.
   * Verified on this machine: a scratch file was recycled and found in `$Recycle.Bin` through its `$I` record.
+* **Phase 6: AudioDock** (`src/modules/audiodock/`, schema 7). No new dependencies: Core Audio and winmm through ctypes.
+  * Lists input and output endpoints with name, adapter, format and state, plus the default and communications devices.
+  * Per-device volume slider and mute.
+  * "Make default" uses `IPolicyConfig` (undocumented; the Sound control panel uses it). The default is read back to confirm, otherwise the user is pointed to Sound settings.
+  * Microphone check:
+    * Live peak meter (waveIn, 16 kHz mono). It only runs on request and stops when you leave the page.
+    * 5-second test recording, kept in memory and played back with `winsound`. Never written to disk.
+  * Profiles (Recording, Voiceover, OBS / streaming, Calls & meetings, custom): preferred devices, a communications flag, microphone volume and a checklist.
+  * Applying a profile reports, device by device, what changed and what couldn't.
+  * Troubleshooting details and tips. If Windows audio is unavailable, the page explains why and the rest of DayOS is unaffected.
+  * The page states that it does not route audio, apply effects or change other apps.
+  * Verified on this machine (read-only):
+    * 3 active inputs and 4 active outputs listed with formats.
+    * Defaults and volumes read.
+    * Setting the current default to itself confirmed the switching path.
+    * Every active input mapped to its waveIn device.
+  * **Not exercised live:** opening the microphone (the meter and test recording). DayOS must not record without the user's action; the logic is tested against a simulated driver.
 * Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
-* **Tests:** 201 automated tests pass.
+* **Tests:** 210 automated tests pass.
 
 ## Next concrete tasks
 
-1. Phase 6: AudioDock.
-2. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
-3. Phase 8: hardening and documentation.
-4. Phase 9:
+1. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
+2. Phase 8: hardening and documentation.
+3. Phase 9:
    * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
    * Push, publish the v2.0.0 release and verify the asset.
 
