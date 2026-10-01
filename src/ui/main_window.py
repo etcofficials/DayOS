@@ -119,6 +119,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        from src.modules import load_features
+
+        load_features()
         self.nav_buttons: dict[str, NavItem] = {}
         self.sidebar = self._build_sidebar()
         layout.addWidget(self.sidebar)
@@ -154,6 +157,9 @@ class MainWindow(QMainWindow):
         from src.ui.shell.builtin import register_builtins
 
         register_builtins(self)
+        from src.modules import install_ui
+
+        install_ui(self)
         self._register_hotkeys()
         self.notifier.start()
         self.navigate("today")

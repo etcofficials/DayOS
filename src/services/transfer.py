@@ -37,6 +37,10 @@ TABLE_ORDER = [
     "habits", "habit_logs", "journal", "weekly_reviews", "events", "event_skips", "timetable", "timetable_skips",
     "study_sessions", "exams", "chapters", "revision_logs", "mistakes", "mock_tests",
     "inbox", "reminders", "notification_state", "entity_links", "file_refs", "routine_items", "routine_logs",
+    # StudyForge
+    "sf_courses", "sf_documents", "sf_document_pages", "sf_nodes", "sf_questions", "sf_blueprints", "sf_tests",
+    "sf_test_items", "sf_attempts", "sf_answers", "sf_topic_state", "sf_review_log", "sf_flashcards", "sf_materials",
+    "sf_mistake_categories",
 ]
 NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
 NOT_EXPORTED_PREFIXES = ("search_index",)
@@ -225,6 +229,9 @@ def import_json(db: Database, path: Path, backups_dir: Path) -> dict[str, int]:
     current_row = 0
     try:
         with db.transaction():
+            # Tables reference each other in both directions (e.g. mistakes -> StudyForge topics), so
+            # foreign keys are checked once at the end of the import instead of row by row.
+            db.execute("PRAGMA defer_foreign_keys = ON")
             for table in reversed(replace_tables):
                 if table == "settings":
                     db.execute("DELETE FROM settings WHERE key NOT LIKE 'state.%'")

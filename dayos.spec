@@ -18,7 +18,7 @@ a = Analysis(
         ("assets/dayos.ico", "assets"),
         ("assets/art/*.svg", "assets/art"),
     ],
-    hiddenimports=[],
+    hiddenimports=["pypdf"],  # imported lazily by StudyForge's document importer
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "unittest", "pydoc", "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick",

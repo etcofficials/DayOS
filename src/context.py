@@ -52,6 +52,9 @@ class AppContext:
 
     def __post_init__(self) -> None:
         self.notifications = NotificationService(self)
+        from src.modules import install_services
+
+        install_services(self)
 
     @classmethod
     def open(cls, paths: AppPaths) -> "AppContext":

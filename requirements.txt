@@ -1,2 +1,4 @@
 # Runtime dependency (Qt Core/Gui/Widgets/Svg only - no web engine, no QML)
 PySide6-Essentials==6.11.2
+# Local PDF text extraction for StudyForge imports (pure Python, BSD-3-Clause)
+pypdf==6.1.1

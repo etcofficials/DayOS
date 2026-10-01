@@ -505,13 +505,32 @@ def _migrate_v3(db: Database) -> None:
         db.execute(search_backfill(*source))
 
 
+def _migrate_v4(db: Database) -> None:
+    """StudyForge: courses, documents, question bank, blueprints, tests, revision state, flashcards."""
+    from src.modules.studyforge.schema import SCHEMA_V4, SEARCH_SOURCES_V4
+
+    for statement in _split_sql(SCHEMA_V4):
+        db.execute(statement)
+    for source in SEARCH_SOURCES_V4:
+        for statement in search_triggers(*source):
+            db.execute(statement)
+        db.execute(search_backfill(*source))
+
+
+def _all_search_sources() -> list:
+    from src.modules.studyforge.schema import SEARCH_SOURCES_V4
+
+    return list(SEARCH_SOURCES_V3) + list(SEARCH_SOURCES_V4)
+
+
 # Every search source, across all migrations (used to rebuild the index).
-ALL_SEARCH_SOURCES = list(SEARCH_SOURCES_V3)
+ALL_SEARCH_SOURCES = _all_search_sources()
 
 MIGRATIONS: list[tuple[int, Migration]] = [
     (1, _migrate_v1),
     (2, _migrate_v2),
     (3, _migrate_v3),
+    (4, _migrate_v4),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]
