@@ -45,6 +45,8 @@ TABLE_ORDER = [
     "sf_mistake_categories",
     # ClipVault (history is private: see PRIVATE_TABLES)
     "cv_rules", "cv_entries",
+    # FilePilot
+    "fp_scans", "fp_operations",
 ]
 NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
 NOT_EXPORTED_PREFIXES = ("search_index",)

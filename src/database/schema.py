@@ -535,6 +535,14 @@ def _migrate_v5(db: Database) -> None:
         db.execute(search_backfill(*source))
 
 
+def _migrate_v6(db: Database) -> None:
+    """FilePilot: scan summaries and the file-operation history."""
+    from src.modules.filepilot.schema import SCHEMA_V6_FILEPILOT
+
+    for statement in _split_sql(SCHEMA_V6_FILEPILOT):
+        db.execute(statement)
+
+
 def _all_search_sources() -> list:
     """The current definition of every search source; a later migration's definition of a table wins."""
     from src.modules.brain.schema import SEARCH_SOURCES_V5
@@ -555,6 +563,7 @@ MIGRATIONS: list[tuple[int, Migration]] = [
     (3, _migrate_v3),
     (4, _migrate_v4),
     (5, _migrate_v5),
+    (6, _migrate_v6),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

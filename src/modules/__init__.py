@@ -20,6 +20,7 @@ FEATURES = [
     "src.modules.studyforge",
     "src.modules.brain",
     "src.modules.clipvault",
+    "src.modules.filepilot",
 ]
 
 _loaded: list = []

@@ -106,6 +106,12 @@ PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
     "clip.search_in_palette": (False, _bool),
     "clip.global": (False, _bool),
     "clip.hotkey": ("Ctrl+Alt+Shift+V", _str_max(40)),
+    # FilePilot
+    "filepilot.roots": ([], _str_list(30, 1000)),
+    "filepilot.old_days": (90, _int_range(7, 3650)),
+    "filepilot.large_mb": (100, _int_range(1, 100000)),
+    "filepilot.dup_min_kb": (64, _int_range(0, 1048576)),
+    "filepilot.include_hidden": (False, _bool),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),

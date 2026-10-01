@@ -64,7 +64,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 2 | Home: tasks, calendar, habits, goals, reviews, dashboard widgets, capture, search, palette, notifications | DONE (commits `89dfc55`, `501492c`) |
 | 3 | StudyForge | DONE (see below) |
 | 4 | SecondBrain and ClipVault | DONE (see below) |
-| 5 | FilePilot | NOT STARTED |
+| 5 | FilePilot | DONE (see below) |
 | 6 | AudioDock | NOT STARTED |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | NOT STARTED |
 | 8 | Integration and hardening | NOT STARTED |
@@ -142,16 +142,35 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
   * Quick picker on an optional system-wide shortcut (default `Ctrl+Alt+Shift+V`, off by default; conflicts are reported in Settings). Shift+Enter pastes into the previous window with a single Ctrl+V.
   * A sidebar pause button appears while ClipVault is on.
   * History (`cv_entries`) is a private table: excluded from JSON export unless chosen, never in the FTS index, and shown in Ctrl+K only when allowed.
+* **Phase 5: FilePilot** (`src/modules/filepilot/`, schema 6)
+  * Scanning:
+    * Read-only scans of the folders the user chooses (never automatic), in the background with progress and Cancel.
+    * Links and junctions are never followed. Windows, system, hidden, `$Recycle.Bin` and similar folders are skipped.
+    * Online-only cloud files are listed but never read.
+  * Results:
+    * Storage summary by type (images, screenshots, videos, documents, archives, installers …), biggest folders, large files and old downloads.
+    * Sortable tables with checkboxes.
+  * Duplicates:
+    * Found by content only: grouped by size, then a first/last-64 KB fingerprint, then full SHA-256.
+    * Files of 128 KB or less are hashed in full, and hard links are not reported.
+    * One copy per group is always kept.
+  * Operations:
+    * Move, and send to the Recycle Bin (`SHFileOperationW` with `FOF_ALLOWUNDO`, fixed drives only). There is no permanent delete.
+    * Every operation is previewed with its path, size, reason, destination and any conflict. Nothing is ever overwritten (skip, or keep both with a new name).
+    * Files that changed since the scan are skipped. Windows, Program Files, AppData and DayOS's own folders are protected.
+    * Moves are verified (size, plus SHA-256 across drives) before the original is removed.
+    * Each result is recorded as it happens, on the worker's own connection.
+    * Moves can be undone from History; undo never overwrites either.
+  * Verified on this machine: a scratch file was recycled and found in `$Recycle.Bin` through its `$I` record.
 * Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
-* **Tests:** 191 automated tests pass.
+* **Tests:** 201 automated tests pass.
 
 ## Next concrete tasks
 
-1. Phase 5: FilePilot. It only proposes changes, never auto-deletes, and offers undo.
-2. Phase 6: AudioDock.
-3. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
-4. Phase 8: hardening and documentation.
-5. Phase 9:
+1. Phase 6: AudioDock.
+2. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
+3. Phase 8: hardening and documentation.
+4. Phase 9:
    * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
    * Push, publish the v2.0.0 release and verify the asset.
 

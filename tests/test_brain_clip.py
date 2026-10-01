@@ -23,7 +23,7 @@ class MigrationFiveTests(TempHomeTestCase):
         self.assertEqual(db.user_version, 4)
         db.execute("INSERT INTO notes (title, content, tags, pinned, created_at, updated_at) "
                    "VALUES ('Old note', 'kept exactly', 'a, b', 1, '2026-01-01 09:00:00', '2026-01-02 09:00:00')")
-        migrate(db)
+        migrate(db, MIGRATIONS[:5])
         self.assertEqual(db.user_version, 5)
         row = dict(db.query_one("SELECT * FROM notes"))
         self.assertEqual((row["title"], row["content"], row["tags"], row["pinned"], row["updated_at"]),
