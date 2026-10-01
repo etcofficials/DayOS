@@ -102,6 +102,13 @@ class Note:
     pinned: int = 0
     created_at: str = ""
     updated_at: str = ""
+    kind: str = "note"
+    format: str = "plain"
+    collection_id: int | None = None
+    url: str = ""
+    language: str = ""
+    archived: int = 0
+    source: str = ""
 
     @property
     def tag_list(self) -> list[str]:

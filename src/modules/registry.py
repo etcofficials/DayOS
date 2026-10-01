@@ -53,8 +53,8 @@ MODULES: list[ModuleSpec] = [
                "Exam dates, chapter checklists, mistakes and mock-test scores."),
     ModuleSpec("inbox", "Inbox", "inbox", "knowledge", "src.ui.pages.inbox:InboxPage",
                "Everything you captured quickly, ready to sort into tasks, notes or projects."),
-    ModuleSpec("notes", "Notes", "notes", "knowledge", "src.ui.pages.notes:NotesPage",
-               "Your notes, searchable and pinned."),
+    ModuleSpec("notes", "SecondBrain", "brain", "knowledge", "src.modules.brain.ui.page:BrainPage",
+               "Notes, bookmarks, code snippets, commands, ideas and troubleshooting notes, all searchable."),
     ModuleSpec("insights", "Insights", "insights", "home", "src.ui.pages.insights:InsightsPage",
                "Charts built only from your own records."),
 ]

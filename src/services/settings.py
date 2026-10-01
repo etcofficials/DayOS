@@ -93,6 +93,19 @@ PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
     "focus.cycles": (4, _int_range(2, 8)),
     "capture.hotkey": ("Ctrl+Alt+N", _str_max(40)),
     "capture.global": (True, _bool),
+    # SecondBrain
+    "brain.default_format": ("markdown", _choice("plain", "markdown")),
+    # ClipVault: off until the user turns it on after reading what is stored
+    "clip.enabled": (False, _bool),
+    "clip.paused": (False, _bool),
+    "clip.retention_days": (7, _int_range(0, 3650)),  # 0 = keep until cleared
+    "clip.max_items": (500, _int_range(20, 5000)),
+    "clip.max_chars": (20000, _int_range(200, 200000)),
+    "clip.skip_sensitive": (True, _bool),
+    "clip.skip_private_apps": (True, _bool),
+    "clip.search_in_palette": (False, _bool),
+    "clip.global": (False, _bool),
+    "clip.hotkey": ("Ctrl+Alt+Shift+V", _str_max(40)),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),

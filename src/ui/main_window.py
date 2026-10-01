@@ -142,6 +142,10 @@ class MainWindow(QMainWindow):
         self.hotkeys = GlobalHotkeys()
         self.hotkeys.activated.connect(self._on_hotkey)
         self._capture = None
+        # feature modules add system-wide shortcuts and clean-up work here (see add_global_hotkey)
+        self.hotkey_sources: dict[str, tuple] = {}
+        self._hotkey_setting_keys: set[str] = set()
+        self.shutdown_hooks: list = []
         self.revision_providers: list = []  # StudyForge adds "topics due" to the Today revision widget
         theme.about_to_change.connect(self._theme_crossfade)
         self.pages: LazyPages = LazyPages(self)
@@ -329,18 +333,37 @@ class MainWindow(QMainWindow):
     def _on_setting(self, key: str, _value) -> None:
         if key in ("profile", "nav.modules"):
             self._build_nav()
-        elif key in ("capture.global", "capture.hotkey"):
+        elif key in ("capture.global", "capture.hotkey") or key in self._hotkey_setting_keys:
             self._register_hotkeys()
 
     # -- shell: palette, capture, notifications, hotkeys -----------------------------
+    def add_global_hotkey(self, name: str, sequence, handler, setting_keys: tuple[str, ...] = ()) -> None:
+        """Let a feature claim a system-wide shortcut.
+
+        ``sequence()`` returns the key combination to register, or None while the feature
+        doesn't want one; it is re-evaluated whenever one of ``setting_keys`` changes.
+        """
+        self.hotkey_sources[name] = (sequence, handler)
+        self._hotkey_setting_keys.update(setting_keys)
+
     def _register_hotkeys(self) -> None:
         self.hotkeys.unregister_all()
         if self.ctx.settings.get("capture.global"):
             self.hotkeys.register("capture", str(self.ctx.settings.get("capture.hotkey")))
+        for name, (sequence, _handler) in self.hotkey_sources.items():
+            try:
+                combo = sequence()
+            except Exception:
+                log.warning("Hotkey source %s failed", name, exc_info=True)
+                continue
+            if combo:
+                self.hotkeys.register(name, str(combo))
 
     def _on_hotkey(self, name: str) -> None:
         if name == "capture":
             self.quick_capture(standalone=not self.isActiveWindow())
+        elif name in self.hotkey_sources:
+            self.hotkey_sources[name][1]()
 
     def open_palette(self) -> None:
         from src.ui.shell.palette import CommandPalette
@@ -546,4 +569,9 @@ class MainWindow(QMainWindow):
             log.warning("Could not save window geometry", exc_info=True)
         self.hotkeys.unregister_all()
         self.notifier.stop()
+        for hook in list(self.shutdown_hooks):
+            try:
+                hook()
+            except Exception:
+                log.warning("Shutdown hook failed", exc_info=True)
         event.accept()

@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 FEATURES = [
     "src.modules.studyforge",
+    "src.modules.brain",
+    "src.modules.clipvault",
 ]
 
 _loaded: list = []

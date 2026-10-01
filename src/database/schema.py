@@ -517,10 +517,33 @@ def _migrate_v4(db: Database) -> None:
         db.execute(search_backfill(*source))
 
 
+def _migrate_v5(db: Database) -> None:
+    """SecondBrain (note kinds, formats, collections, attachments) and ClipVault (private history, rules)."""
+    from src.modules.brain.schema import SCHEMA_V5_BRAIN, SEARCH_SOURCES_V5
+    from src.modules.clipvault.schema import SCHEMA_V5_CLIP
+
+    for statement in _split_sql(SCHEMA_V5_BRAIN) + _split_sql(SCHEMA_V5_CLIP):
+        db.execute(statement)
+    # notes are re-indexed with their new searchable fields
+    for table, kind, *_ in SEARCH_SOURCES_V5:
+        for suffix in ("ai", "au", "ad"):
+            db.execute(f"DROP TRIGGER IF EXISTS {table}_{suffix}_search")
+        db.execute(f"DELETE FROM search_index WHERE rowid IN (SELECT id * 64 + {SEARCH_KINDS[kind]} FROM {table})")
+    for source in SEARCH_SOURCES_V5:
+        for statement in search_triggers(*source):
+            db.execute(statement)
+        db.execute(search_backfill(*source))
+
+
 def _all_search_sources() -> list:
+    """The current definition of every search source; a later migration's definition of a table wins."""
+    from src.modules.brain.schema import SEARCH_SOURCES_V5
     from src.modules.studyforge.schema import SEARCH_SOURCES_V4
 
-    return list(SEARCH_SOURCES_V3) + list(SEARCH_SOURCES_V4)
+    by_table: dict[str, tuple] = {}
+    for source in list(SEARCH_SOURCES_V3) + list(SEARCH_SOURCES_V4) + list(SEARCH_SOURCES_V5):
+        by_table[source[0]] = source
+    return list(by_table.values())
 
 
 # Every search source, across all migrations (used to rebuild the index).
@@ -531,6 +554,7 @@ MIGRATIONS: list[tuple[int, Migration]] = [
     (2, _migrate_v2),
     (3, _migrate_v3),
     (4, _migrate_v4),
+    (5, _migrate_v5),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

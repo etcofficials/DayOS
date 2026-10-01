@@ -99,7 +99,7 @@ class CaptureWindow(FadeDialog):
         self.url.setVisible(kind == "link")
         self.when.setVisible(kind == "reminder")
         labels = {"task": "Create task now", "note": "Create note now", "reminder": "Create reminder now",
-                  "project": "Create project now", "link": "Save link as note", "snippet": "Create note now"}
+                  "project": "Create project now", "link": "Save as bookmark", "snippet": "Create snippet now"}
         self.now_btn.setVisible(kind in labels)
         self.now_btn.setText(labels.get(kind, ""))
         self._text_changed()
@@ -157,10 +157,18 @@ class CaptureWindow(FadeDialog):
             elif kind == "project":
                 result["id"] = self.ctx.projects.create(title, description=text)
                 bus.notify("projects")
-            else:  # note / link / snippet
+            elif kind == "link" and url:
+                note_title = text.splitlines()[0][:120] if text and text != url else ""
+                result["id"] = self.ctx.services["brain"].add_bookmark(
+                    url, note_title, text if text and text != url else "")[0]
+                bus.notify("notes")
+            else:  # note / idea / snippet (and a link without an address)
                 body = (url + "\n\n" + text if url and url not in text else text)
                 note_title = title if kind != "link" else (text.splitlines()[0][:120] if text and text != url else url)
-                result["id"] = self.ctx.notes.create(note_title if len(text) > 60 or kind == "link" else "", body)
+                note_kind = {"snippet": "snippet", "idea": "idea"}.get(kind, "note")
+                fmt = "plain" if note_kind == "snippet" else str(self.ctx.settings.get("brain.default_format"))
+                result["id"] = self.ctx.notes.create(note_title if len(text) > 60 or kind == "link" else "", body,
+                                                     kind=note_kind, format=fmt, source="Quick capture")
                 bus.notify("notes")
 
         if guarded(self, run, "Couldn't create it"):

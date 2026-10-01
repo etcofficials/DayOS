@@ -8,6 +8,8 @@ malformed file can never leave the database half-imported.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import csv
 import json
 import logging
@@ -33,7 +35,7 @@ MAX_IMPORT_BYTES = 200 * 1024 * 1024
 TABLE_ORDER = [
     "settings", "subjects", "goals", "goal_progress", "goal_milestones",
     "projects", "project_milestones", "project_logs",
-    "tasks", "subtasks", "task_dependencies", "notes",
+    "tasks", "subtasks", "task_dependencies", "sb_collections", "notes", "sb_attachments",
     "habits", "habit_logs", "journal", "weekly_reviews", "events", "event_skips", "timetable", "timetable_skips",
     "study_sessions", "exams", "chapters", "revision_logs", "mistakes", "mock_tests",
     "inbox", "reminders", "notification_state", "entity_links", "file_refs", "routine_items", "routine_logs",
@@ -41,10 +43,29 @@ TABLE_ORDER = [
     "sf_courses", "sf_documents", "sf_document_pages", "sf_nodes", "sf_questions", "sf_blueprints", "sf_tests",
     "sf_test_items", "sf_attempts", "sf_answers", "sf_topic_state", "sf_review_log", "sf_flashcards", "sf_materials",
     "sf_mistake_categories",
+    # ClipVault (history is private: see PRIVATE_TABLES)
+    "cv_rules", "cv_entries",
 ]
 NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
 NOT_EXPORTED_PREFIXES = ("search_index",)
-PRIVATE_TABLES: set[str] = set()  # exported only on request (e.g. clipboard history)
+PRIVATE_TABLES: set[str] = {"cv_entries"}  # exported only on request (clipboard history)
+
+# Binary values (note attachments) are written to JSON as {"$base64": "..."}.
+_B64 = "$base64"
+
+
+def _encode_value(value: Any) -> Any:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return {_B64: base64.b64encode(bytes(value)).decode("ascii")}
+    return value
+
+
+def _decode_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        if set(value) != {_B64} or not isinstance(value[_B64], str):
+            raise ValueError("not an encoded binary value")
+        return base64.b64decode(value[_B64].encode("ascii"), validate=True)
+    return value
 
 
 def register_tables(tables: list[str], private: bool = False) -> None:
@@ -119,7 +140,7 @@ def export_json(db_path: Path, out_path: Path, include_private: bool = False) ->
             if table not in existing or (table in PRIVATE_TABLES and not include_private):
                 continue
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
-            data = [dict(r) for r in rows]
+            data = [{k: _encode_value(v) for k, v in dict(r).items()} for r in rows]
             if table == "settings":
                 data = [r for r in data if not str(r["key"]).startswith("state.")]
             tables[table] = data
@@ -221,7 +242,12 @@ def import_json(db: Database, path: Path, backups_dir: Path) -> dict[str, int]:
             if extra:
                 raise TransferError(f"Row {i} of '{table}' has unknown fields: {', '.join(sorted(extra))}.")
             for key, value in row.items():
-                if value is not None and not isinstance(value, (str, int, float)):
+                if isinstance(value, dict):
+                    try:
+                        row[key] = _decode_value(value)
+                    except (ValueError, binascii.Error):
+                        raise TransferError(f"Row {i} of '{table}' has an invalid value for '{key}'.") from None
+                elif value is not None and not isinstance(value, (str, int, float)):
                     raise TransferError(f"Row {i} of '{table}' has an invalid value for '{key}'.")
     create_backup(db.path, backups_dir, label="pre-import")
     counts: dict[str, int] = {}

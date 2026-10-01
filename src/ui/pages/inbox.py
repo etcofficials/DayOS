@@ -161,7 +161,15 @@ class InboxPage(Page):
 
             def make() -> None:
                 nonlocal result_id
-                result_id = self.ctx.notes.create(title, body, "idea" if item.kind == "idea" else "")
+                if item.kind == "link" and item.url:
+                    result_id = self.ctx.services["brain"].add_bookmark(
+                        item.url, title or (first_line if item.text != item.url else ""),
+                        item.text if item.text != item.url else "")[0]
+                    return
+                kind = {"idea": "idea", "snippet": "snippet"}.get(item.kind, "note")
+                fmt = "plain" if kind == "snippet" else str(self.ctx.settings.get("brain.default_format"))
+                result_id = self.ctx.notes.create(title, body, "idea" if item.kind == "idea" else "", kind=kind,
+                                                  format=fmt, source="Inbox")
 
             if not guarded(self, make, "Couldn't create the note"):
                 return

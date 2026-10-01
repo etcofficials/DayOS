@@ -63,7 +63,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 1 | Theme engine, five themes, registry and navigation | DONE (commit `e0effd5`) |
 | 2 | Home: tasks, calendar, habits, goals, reviews, dashboard widgets, capture, search, palette, notifications | DONE (commits `89dfc55`, `501492c`) |
 | 3 | StudyForge | DONE (see below) |
-| 4 | SecondBrain and ClipVault | NOT STARTED |
+| 4 | SecondBrain and ClipVault | DONE (see below) |
 | 5 | FilePilot | NOT STARTED |
 | 6 | AudioDock | NOT STARTED |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | NOT STARTED |
@@ -117,18 +117,41 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
   * Flashcards and study materials.
   * Analytics compare only tests with the same configuration.
   * Printable papers are labelled "not an official paper".
-* **Tests:** 165 automated tests pass.
+* **Phase 4: SecondBrain** (`src/modules/brain/`, evolves v1 Notes; the sidebar key is still `notes`)
+  * Note kinds: note, bookmark, code snippet, terminal command, project idea, troubleshooting, study note, reference.
+  * Plain text or Markdown with a read-only preview. The preview loads nothing from the internet or the disk.
+  * Collections (deleting one never deletes its notes), tags, pinning, archiving.
+  * Bookmarks: URLs validated (http/https only); the same URL is never saved twice.
+  * `[[wiki links]]` with backlinks.
+  * Links to tasks, projects, courses, questions and more.
+  * Attachments: copies stored in the database, up to 10 MB each, so backups and exports include them. Executable attachments are only ever saved as copies, never opened.
+  * Markdown/text import (only ever adds notes). Markdown export always goes to a new folder and never overwrites.
+  * JSON export encodes attachment bytes as base64.
+* **Phase 4: ClipVault** (`src/modules/clipvault/`)
+  * Opt-in: off by default. The first-use card explains what is stored, where, and what is skipped.
+  * While off or paused, the clipboard is not read at all (the signal is disconnected).
+  * Skipped:
+    * copies an app marks private (`ExcludeClipboardContentFromMonitorProcessing` and related formats)
+    * copies from known password managers (clipboard owner, or the foreground app as a fallback)
+    * text that looks like keys, tokens, passwords, one-time codes or card numbers (Luhn check)
+    * text matching the user's exclusion rules (app / contains / regex)
+  * Skip reasons never contain the clipboard text, and history is never logged.
+  * Entries are deduplicated. Retention covers both age and count; pinned, favourite, template and hand-added entries are always kept.
+  * Clear history, or delete everything.
+  * Templates expand `{date}`, `{time}`, `{datetime}` and `{clipboard}`.
+  * Quick picker on an optional system-wide shortcut (default `Ctrl+Alt+Shift+V`, off by default; conflicts are reported in Settings). Shift+Enter pastes into the previous window with a single Ctrl+V.
+  * A sidebar pause button appears while ClipVault is on.
+  * History (`cv_entries`) is a private table: excluded from JSON export unless chosen, never in the FTS index, and shown in Ctrl+K only when allowed.
+* Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
+* **Tests:** 191 automated tests pass.
 
 ## Next concrete tasks
 
-1. Phase 4:
-   * SecondBrain: evolve Notes with kinds, collections, Markdown and links.
-   * ClipVault: opt-in, pause, retention, exclusions, and skipping password-manager clipboard formats.
-2. Phase 5: FilePilot. It only proposes changes, never auto-deletes, and offers undo.
-3. Phase 6: AudioDock.
-4. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
-5. Phase 8: hardening and documentation.
-6. Phase 9:
+1. Phase 5: FilePilot. It only proposes changes, never auto-deletes, and offers undo.
+2. Phase 6: AudioDock.
+3. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
+4. Phase 8: hardening and documentation.
+5. Phase 9:
    * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
    * Push, publish the v2.0.0 release and verify the asset.
 
