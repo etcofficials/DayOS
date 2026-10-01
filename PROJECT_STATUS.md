@@ -66,7 +66,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 4 | SecondBrain and ClipVault | DONE (see below) |
 | 5 | FilePilot | DONE (see below) |
 | 6 | AudioDock | DONE (see below) |
-| 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | NOT STARTED |
+| 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | DONE (see below) |
 | 8 | Integration and hardening | NOT STARTED |
 | 9 | Windows build and GitHub release | NOT STARTED |
 
@@ -179,14 +179,39 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
     * Setting the current default to itself confirmed the switching path.
     * Every active input mapped to its waveIn device.
   * **Not exercised live:** opening the microphone (the meter and test recording). DayOS must not record without the user's action; the logic is tested against a simulated driver.
+* **Phase 7** (schema 8)
+  * Shared online plumbing:
+    * `src/services/http.py`: http(s) only, timeouts, size caps, `Retry-After` honoured, no retries or polling. Logs show host and status only.
+    * `http_cache`.
+    * `src/services/credentials.py`: Windows Credential Manager.
+  * Weather (`src/modules/briefing/weather.py`): Open-Meteo, checked for terms (non-commercial, no key, CC BY 4.0) and verified live.
+  * News (`news.py`): publishers' own RSS/Atom feeds. All 15 default feeds were verified live; `hnrss.org` was excluded because it isn't a publisher.
+  * Both are off by default, refresh at most once per interval with a 15-minute back-off after failures, label offline and stale data, and never fill in missing values or headlines.
+  * Money (`src/modules/money`): manual tracker with exact amounts in minor units.
+    * Currency is chosen by the user.
+    * Budgets, savings goals, subscriptions with renewal reminders (notification category `bill`), and CSV export.
+    * No bank access and no predictions.
+  * Skills (`src/modules/skills`): roadmaps with milestones, resources and practice tasks.
+    * Prerequisites, with cycles refused.
+    * Learn / practice / build logs with evidence links.
+    * Weekly review with no scores or shaming.
+  * Projects page (`src/modules/projects`) over the existing project data.
+    * Optional read-only GitHub panel through the official REST API; the token lives in Credential Manager only.
+    * Verified live against the public DayOS repository.
+  * Optional AI (`src/services/ai.py`, official `anthropic` SDK 1.11.0, model `claude-opus-5-5` by default):
+    * The user's own key is stored in Credential Manager.
+    * A consent dialog shows exactly what will be sent; the preview and the request come from the same payload function.
+    * JSON-schema outputs are validated.
+    * `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) is on for Opus and Sonnet, and refusals are handled.
+    * Features: note summary and tags, project task suggestions, and StudyForge practice questions (saved as `ai`, not verified).
+    * No live AI call has been made: no key is configured on this machine.
 * Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
-* **Tests:** 210 automated tests pass.
+* **Tests:** 231 automated tests pass.
 
 ## Next concrete tasks
 
-1. Phase 7: integrations (Open-Meteo, RSS, Credential Manager, AI consent).
-2. Phase 8: hardening and documentation.
-3. Phase 9:
+1. Phase 8: hardening and documentation.
+2. Phase 9:
    * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
    * Push, publish the v2.0.0 release and verify the asset.
 

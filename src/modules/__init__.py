@@ -26,6 +26,7 @@ FEATURES = [
     "src.modules.money",
     "src.modules.skills",
     "src.modules.projects",
+    "src.modules.assist",
 ]
 
 _loaded: list = []

@@ -229,8 +229,39 @@ class ProjectsPage(Page):
         add.addWidget(button("Add", "soft", "plus", lambda: self._add_task(p.id, title)))
         title.returnPressed.connect(lambda: self._add_task(p.id, title))
         card.body.addLayout(add)
-        card.body.addWidget(label("Open a task to set its deadline or what it's waiting on.", "caption"))
+        hint = QHBoxLayout()
+        hint.addWidget(label("Open a task to set its deadline or what it's waiting on.", "caption"), 1)
+        hint.addWidget(button("Suggest tasks with AI…", "link", "sparkle", lambda: self.ai_tasks(p)))
+        card.body.addLayout(hint)
         return card
+
+    def ai_tasks(self, p) -> None:
+        from src.services import ai
+        from src.ui.ai_consent import ReviewDialog, run_ai
+
+        existing = [t.title for t in self.ctx.tasks.list("all", project_id=p.id)] + \
+                   [m.title for m in self.ctx.milestones.list("project", p.id)]
+        name, description, project_id = p.name, p.description, p.id
+
+        def done(tasks) -> None:
+            items = [f"{title}  ·  about {minutes} min" for title, minutes in tasks]
+            dlg = ReviewDialog(self, "Suggested tasks", "Suggested by AI. Tick the ones worth doing; they are added to "
+                                                        "this project as ordinary tasks you can edit.", items,
+                               checked=False)
+            if not dlg.exec():
+                return
+            added = 0
+            for i in dlg.selected():
+                title, minutes = tasks[i]
+                if guarded(self, lambda t=title, m=minutes: self.ctx.tasks.create(t, project_id=project_id,
+                                                                                   estimate_minutes=m)):
+                    added += 1
+            if added:
+                self._changed("tasks")
+                self.toast(f"Added {added} task{'s' if added != 1 else ''}")
+
+        run_ai(self, self.ctx.settings, "task ideas for this project", ai.project_payload(name, description, existing),
+               lambda provider: ai.suggest_tasks(provider, name, description, existing), done, self.toast)
 
     def _logs(self, p) -> Card:
         card = Card("Log", "list")

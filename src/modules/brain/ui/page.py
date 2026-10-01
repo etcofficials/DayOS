@@ -268,6 +268,7 @@ class BrainPage(Page):
         self.archive_action = self.more_menu.addAction("Archive", self._toggle_archive)
         self.more_menu.addAction("Attach a file…", self.attach_file)
         self.more_menu.addAction("Export as Markdown…", self._export_current)
+        self.more_menu.addAction("Summarise with AI…", self.ai_summarize)
         self.more_menu.addSeparator()
         self.more_menu.addAction("Delete…", self._delete)
         more.setMenu(self.more_menu)
@@ -893,6 +894,49 @@ class BrainPage(Page):
         self._fill_collections()
         self._reload_list()
         self._notify()
+
+    # -- optional AI ---------------------------------------------------------------------
+    def ai_summarize(self) -> None:
+        """Ask the configured AI for a summary and tags (after showing exactly what is sent)."""
+        if self.current is None:
+            return
+        self.save_now()
+        title, content = self.title_edit.text().strip(), self.editor.toPlainText()
+        if not content.strip():
+            self.toast("This note is empty")
+            return
+        from src.services import ai
+        from src.ui.ai_consent import ReviewDialog, run_ai
+
+        note_id = self.current.id
+
+        def done(result) -> None:
+            summary, tags = result
+            items = [f"Add this summary at the top of the note: “{summary}”"] + [f"Add tag: {t}" for t in tags]
+            dlg = ReviewDialog(self, "AI suggestions", "Written by AI from this note. Check it is accurate before "
+                                                       "keeping it; nothing changes unless you add it.", items)
+            if not dlg.exec():
+                return
+            chosen = dlg.selected()
+            note = self.ctx.notes.get(note_id)
+            if note is None or not chosen:
+                return
+            body = note.content
+            if 0 in chosen:
+                prefix = (f"> **AI summary:** {summary}\n\n" if note.format == "markdown" else
+                          f"AI summary: {summary}\n\n")
+                body = prefix + body
+            new_tags = [tags[i - 1] for i in chosen if i > 0]
+            merged = ", ".join([t for t in note.tag_list] + new_tags)
+            if guarded(self, lambda: self.ctx.notes.save(note_id, note.title, body, merged)):
+                bus.notify("notes")
+                if self.current and self.current.id == note_id:
+                    self.current = None
+                    self._open(self.ctx.notes.get(note_id))
+                self.toast("AI suggestions added")
+
+        run_ai(self, self.ctx.settings, "a summary and tag ideas for this note", ai.note_payload(title, content),
+               lambda provider: ai.summarize_note(provider, title, content), done, self.toast)
 
     # -- import / export ---------------------------------------------------------------
     def import_files(self, paths: list[str] | None = None) -> None:
