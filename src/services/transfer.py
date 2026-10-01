@@ -27,12 +27,35 @@ EXPORT_FORMAT = "dayos-export"
 EXPORT_FORMAT_VERSION = 1
 MAX_IMPORT_BYTES = 200 * 1024 * 1024
 
-# Parent tables first so foreign keys resolve during import.
+# Parent tables first so foreign keys resolve during import. Feature modules append their
+# tables with :func:`register_tables`. Rebuildable data (the search index, the HTTP cache) is
+# never exported; clipboard history is exported only when the user asks for it.
 TABLE_ORDER = [
-    "settings", "subjects", "goals", "goal_progress", "tasks", "subtasks", "notes",
-    "habits", "habit_logs", "journal", "events", "timetable", "timetable_skips",
+    "settings", "subjects", "goals", "goal_progress", "goal_milestones",
+    "projects", "project_milestones", "project_logs",
+    "tasks", "subtasks", "task_dependencies", "notes",
+    "habits", "habit_logs", "journal", "weekly_reviews", "events", "event_skips", "timetable", "timetable_skips",
     "study_sessions", "exams", "chapters", "revision_logs", "mistakes", "mock_tests",
+    "inbox", "reminders", "notification_state", "entity_links", "file_refs", "routine_items", "routine_logs",
 ]
+NOT_EXPORTED = {"http_cache", "sqlite_sequence"}
+NOT_EXPORTED_PREFIXES = ("search_index",)
+PRIVATE_TABLES: set[str] = set()  # exported only on request (e.g. clipboard history)
+
+
+def register_tables(tables: list[str], private: bool = False) -> None:
+    for table in tables:
+        if table not in TABLE_ORDER:
+            TABLE_ORDER.append(table)
+        if private:
+            PRIVATE_TABLES.add(table)
+
+
+def unexported_tables(conn) -> list[str]:
+    """Tables in the database that export would miss (used by tests to keep exports complete)."""
+    names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    return [n for n in names if n not in TABLE_ORDER and n not in NOT_EXPORTED
+            and not n.startswith(NOT_EXPORTED_PREFIXES)]
 
 CSV_EXPORTS: dict[str, str] = {
     "tasks": """SELECT t.id, t.title, t.description, t.due_date, t.due_time,
@@ -82,12 +105,15 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def export_json(db_path: Path, out_path: Path) -> Path:
+def export_json(db_path: Path, out_path: Path, include_private: bool = False) -> Path:
     """Write every table to one JSON file (atomically)."""
     conn = open_connection(db_path)
     try:
         tables: dict[str, list[dict[str, Any]]] = {}
+        existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         for table in TABLE_ORDER:
+            if table not in existing or (table in PRIVATE_TABLES and not include_private):
+                continue
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
             data = [dict(r) for r in rows]
             if table == "settings":
@@ -183,6 +209,8 @@ def import_json(db: Database, path: Path, backups_dir: Path) -> dict[str, int]:
     columns = {
         t: {r[1] for r in db.query(f"PRAGMA table_info({t})")} for t in TABLE_ORDER
     }
+    # Private tables (clipboard history) are only replaced when the export contains them.
+    replace_tables = [t for t in TABLE_ORDER if t not in PRIVATE_TABLES or t in tables]
     for table, rows in tables.items():
         for i, row in enumerate(rows, start=1):
             extra = set(row) - columns[table]
@@ -197,12 +225,12 @@ def import_json(db: Database, path: Path, backups_dir: Path) -> dict[str, int]:
     current_row = 0
     try:
         with db.transaction():
-            for table in reversed(TABLE_ORDER):
+            for table in reversed(replace_tables):
                 if table == "settings":
                     db.execute("DELETE FROM settings WHERE key NOT LIKE 'state.%'")
                 else:
                     db.execute(f"DELETE FROM {table}")
-            for table in TABLE_ORDER:
+            for table in replace_tables:
                 current_table = table
                 rows = tables.get(table, [])
                 if table == "settings":

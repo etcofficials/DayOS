@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from src.models import GOAL_STATUSES, Goal, GoalProgress, JournalEntry, from_row
+from src.models import Milestone, WeeklyReview, GOAL_STATUSES, Goal, GoalProgress, JournalEntry, from_row
 from src.repositories.base import Repository, clean_text
 from src.services.dates import ValidationError, iso, now_stamp, parse_date, today
 
@@ -127,7 +127,7 @@ class JournalRepository(Repository):
         return from_row(JournalEntry, row) if row else JournalEntry(date=iso(day))
 
     def save(self, day: date, **fields: str) -> None:
-        allowed = {"intention": 300, "reflection": 5000, "went_well": 2000}
+        allowed = {"intention": 300, "reflection": 5000, "went_well": 2000, "improve": 2000}
         data = {k: clean_text(v, field=k.replace("_", " ").title(), max_len=allowed[k]) for k, v in fields.items() if k in allowed}
         if not data:
             return
@@ -136,19 +136,94 @@ class JournalRepository(Repository):
         with self.db.transaction():
             self.db.execute(
                 """
-                INSERT INTO journal (date, intention, reflection, went_well, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO journal (date, intention, reflection, went_well, improve, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET intention = excluded.intention,
                     reflection = excluded.reflection, went_well = excluded.went_well,
-                    updated_at = excluded.updated_at
+                    improve = excluded.improve, updated_at = excluded.updated_at
                 """,
-                (iso(day), merged["intention"], merged["reflection"], merged["went_well"], now_stamp()),
+                (iso(day), merged["intention"], merged["reflection"], merged["went_well"], merged["improve"],
+                 now_stamp()),
             )
 
     def recent(self, limit: int = 30) -> list[JournalEntry]:
         rows = self.db.query(
-            "SELECT * FROM journal WHERE intention != '' OR reflection != '' OR went_well != '' "
+            "SELECT * FROM journal WHERE intention != '' OR reflection != '' OR went_well != '' OR improve != '' "
             "ORDER BY date DESC LIMIT ?",
             (limit,),
         )
         return [from_row(JournalEntry, r) for r in rows]
+
+
+class MilestoneRepository(Repository):
+    """Milestones for goals (``goal_milestones``) and projects (``project_milestones``)."""
+
+    TABLES = {"goal": ("goal_milestones", "goal_id", "target_date"),
+              "project": ("project_milestones", "project_id", "due_date")}
+
+    def _t(self, owner: str) -> tuple[str, str, str]:
+        if owner not in self.TABLES:
+            raise ValueError(owner)
+        return self.TABLES[owner]
+
+    def list(self, owner: str, owner_id: int) -> list[Milestone]:
+        table, fk, _ = self._t(owner)
+        rows = self.db.query(f"SELECT * FROM {table} WHERE {fk} = ? ORDER BY position, id", (owner_id,))
+        return [from_row(Milestone, r) for r in rows]
+
+    def add(self, owner: str, owner_id: int, title: str, when: date | None = None) -> int:
+        table, fk, date_col = self._t(owner)
+        title = clean_text(title, field="Milestone", required=True, max_len=200)
+        position = int(self.db.scalar(f"SELECT COALESCE(MAX(position), -1) + 1 FROM {table} WHERE {fk} = ?",
+                                      (owner_id,), 0))
+        with self.db.transaction():
+            return self.db.insert(
+                f"INSERT INTO {table} ({fk}, title, {date_col}, position, created_at) VALUES (?, ?, ?, ?, ?)",
+                (owner_id, title, iso(when) if when else None, position, now_stamp()))
+
+    def update(self, owner: str, milestone_id: int, title: str, when: date | None) -> None:
+        table, _, date_col = self._t(owner)
+        title = clean_text(title, field="Milestone", required=True, max_len=200)
+        with self.db.transaction():
+            self.db.execute(f"UPDATE {table} SET title = ?, {date_col} = ? WHERE id = ?",
+                            (title, iso(when) if when else None, milestone_id))
+
+    def set_done(self, owner: str, milestone_id: int, done: bool) -> None:
+        table, _, _ = self._t(owner)
+        with self.db.transaction():
+            self.db.execute(f"UPDATE {table} SET done_at = ? WHERE id = ?", (now_stamp() if done else None, milestone_id))
+
+    def delete(self, owner: str, milestone_id: int) -> None:
+        table, _, _ = self._t(owner)
+        with self.db.transaction():
+            self.db.execute(f"DELETE FROM {table} WHERE id = ?", (milestone_id,))
+
+    def counts(self, owner: str, owner_id: int) -> tuple[int, int]:
+        table, fk, _ = self._t(owner)
+        row = self.db.query_one(f"SELECT COUNT(*), SUM(done_at IS NOT NULL) FROM {table} WHERE {fk} = ?", (owner_id,))
+        return int(row[0] or 0), int(row[1] or 0)
+
+
+class WeeklyReviewRepository(Repository):
+    FIELDS = {"wins": 3000, "challenges": 3000, "priorities": 3000, "notes": 5000}
+
+    def get(self, week_start: date) -> WeeklyReview:
+        row = self.db.query_one("SELECT * FROM weekly_reviews WHERE week_start = ?", (iso(week_start),))
+        return from_row(WeeklyReview, row) if row else WeeklyReview(week_start=iso(week_start))
+
+    def save(self, week_start: date, **fields: str) -> None:
+        data = {k: clean_text(v, field=k.title(), max_len=self.FIELDS[k]) for k, v in fields.items() if k in self.FIELDS}
+        current = self.get(week_start)
+        merged = {k: data.get(k, getattr(current, k)) for k in self.FIELDS}
+        with self.db.transaction():
+            self.db.execute(
+                """INSERT INTO weekly_reviews (week_start, wins, challenges, priorities, notes, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(week_start) DO UPDATE SET wins = excluded.wins, challenges = excluded.challenges,
+                     priorities = excluded.priorities, notes = excluded.notes, updated_at = excluded.updated_at""",
+                (iso(week_start), merged["wins"], merged["challenges"], merged["priorities"], merged["notes"],
+                 now_stamp()))
+
+    def recent(self, limit: int = 20) -> list[WeeklyReview]:
+        rows = self.db.query("SELECT * FROM weekly_reviews ORDER BY week_start DESC LIMIT ?", (limit,))
+        return [from_row(WeeklyReview, r) for r in rows]

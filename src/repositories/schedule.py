@@ -4,16 +4,23 @@ Constraints (explained in the UI): an event starts and ends on the same day —
 events crossing midnight should be split into two entries. Timetable entries
 repeat weekly on one weekday, optionally limited to a date window, and single
 occurrences can be skipped without touching the rest of the series.
+
+Events can repeat too (daily, weekdays, weekly, monthly, yearly; see
+:mod:`src.services.recurrence`). Reading a date range expands a repeating event
+into one :class:`Event` per occurrence (same id, ``date`` set to the occurrence);
+single occurrences can be skipped via ``event_skips``.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
 from src.models import AgendaItem, Event, TimetableEntry, from_row
 from src.repositories.base import Repository, clean_text, optional_id
+from src.services import recurrence
 from src.services.dates import ValidationError, date_range, iso, now_stamp, parse_date, parse_time, time_str
 
 _EVENT_SELECT = "SELECT e.*, s.name AS subject_name FROM events e LEFT JOIN subjects s ON s.id = e.subject_id"
@@ -49,6 +56,26 @@ class ScheduleRepository(Repository):
             )
         out["start_time"] = time_str(start)
         out["end_time"] = time_str(end)
+        rule = data.get("recurrence", "") or ""
+        if rule not in recurrence.RULES:
+            raise ValidationError("Unknown repeat rule.")
+        out["recurrence"] = rule
+        until = parse_date(data.get("recur_until"), field="Repeat until") if rule else None
+        if until is not None and until < d:  # type: ignore[operator]
+            raise ValidationError("The repeat end date must be on or after the first date.")
+        out["recur_until"] = iso(until) if until else None
+        remind = data.get("remind_minutes")
+        if remind in ("", None):
+            out["remind_minutes"] = None
+        else:
+            remind = int(remind)
+            if not 0 <= remind <= 10080:
+                raise ValidationError("Reminders can be set up to a week before an event.")
+            if start is None:
+                raise ValidationError("Set a start time to get a reminder before the event.")
+            out["remind_minutes"] = remind
+        out["location"] = clean_text(data.get("location", ""), field="Location", max_len=150)
+        out["task_id"] = optional_id(data.get("task_id"))
         return out
 
     def create_event(self, **data: Any) -> int:
@@ -73,19 +100,47 @@ class ScheduleRepository(Repository):
         row = self.db.query_one(_EVENT_SELECT + " WHERE e.id = ?", (event_id,))
         return from_row(Event, row) if row else None
 
-    def events_between(self, start: date, end: date) -> list[Event]:
+    def events_between(self, start: date, end: date, kind: str | None = None) -> list[Event]:
+        """Events in [start, end] with repeating events expanded to one entry per occurrence."""
+        kind_sql = " AND e.kind = ?" if kind else ""
+        params: list[Any] = [iso(start), iso(end)]
         rows = self.db.query(
-            _EVENT_SELECT + " WHERE e.date BETWEEN ? AND ? ORDER BY e.date, e.start_time IS NOT NULL, e.start_time",
-            (iso(start), iso(end)),
+            _EVENT_SELECT + " WHERE e.recurrence = '' AND e.date BETWEEN ? AND ?" + kind_sql,
+            params + ([kind] if kind else []),
         )
-        return [from_row(Event, r) for r in rows]
+        events = [from_row(Event, r) for r in rows]
+        repeating = self.db.query(
+            _EVENT_SELECT + " WHERE e.recurrence != '' AND e.date <= ? AND (e.recur_until IS NULL OR e.recur_until >= ?)"
+            + kind_sql, [iso(end), iso(start)] + ([kind] if kind else []))
+        if repeating:
+            skips = {(int(r[0]), r[1]) for r in self.db.query(
+                "SELECT event_id, date FROM event_skips WHERE date BETWEEN ? AND ?", (iso(start), iso(end)))}
+            for row in repeating:
+                series = from_row(Event, row)
+                until = date.fromisoformat(series.recur_until) if series.recur_until else None
+                for day in recurrence.occurrences(series.day, series.recurrence, 1, start, end, until, limit=400):
+                    if (series.id, iso(day)) not in skips:
+                        events.append(replace(series, date=iso(day)))
+        events.sort(key=lambda e: (e.date, e.start_time is not None, e.start_time or "", e.title.lower()))
+        return events
 
     def upcoming_deadlines(self, start: date, end: date) -> list[Event]:
-        rows = self.db.query(
-            _EVENT_SELECT + " WHERE e.kind = 'deadline' AND e.date BETWEEN ? AND ? ORDER BY e.date, e.start_time",
-            (iso(start), iso(end)),
-        )
-        return [from_row(Event, r) for r in rows]
+        return self.events_between(start, end, kind="deadline")
+
+    def skip_event_occurrence(self, event_id: int, day: date) -> None:
+        with self.db.transaction():
+            self.db.execute("INSERT OR IGNORE INTO event_skips (event_id, date) VALUES (?, ?)", (event_id, iso(day)))
+
+    def end_event_series(self, event_id: int, last_day: date) -> None:
+        """Stop a repeating event after ``last_day`` (earlier occurrences stay)."""
+        event = self.get_event(event_id)
+        if event is None:
+            return
+        if last_day < event.day:
+            self.delete_event(event_id)
+            return
+        with self.db.transaction():
+            self.db.execute("UPDATE events SET recur_until = ? WHERE id = ?", (iso(last_day), event_id))
 
     # -- timetable ----------------------------------------------------------
     def _clean_entry(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -167,9 +222,10 @@ class ScheduleRepository(Repository):
         """All scheduled items per day in [start, end] (bounded by the caller)."""
         items: dict[date, list[AgendaItem]] = defaultdict(list)
         for e in self.events_between(start, end):
-            detail = e.subject_name or e.category or ""
+            detail = " · ".join(x for x in (e.subject_name or e.category or "", e.location) if x)
             items[date.fromisoformat(e.date)].append(
-                AgendaItem(e.kind, e.title, date.fromisoformat(e.date), e.start_time, e.end_time, detail, e.id)
+                AgendaItem(e.kind, e.title, date.fromisoformat(e.date), e.start_time, e.end_time, detail, e.id,
+                           bool(e.recurrence))
             )
         skips = self._skips(start, end)
         entries = self.entries()
@@ -215,6 +271,17 @@ class ScheduleRepository(Repository):
             if item.start_time and item.end_time and _overlaps(start, end, item.start_time, item.end_time):
                 titles.append(f"{item.title} ({item.start_time}–{item.end_time})")
         return titles
+
+    def conflicts_between(self, start: date, end: date) -> list[tuple[date, "AgendaItem", "AgendaItem"]]:
+        """Every pair of overlapping timed items (events, classes, exams) per day in [start, end]."""
+        found = []
+        for day, items in self.agenda(start, end, include_tasks=False).items():
+            timed = [i for i in items if i.start_time and i.end_time]
+            for i, a in enumerate(timed):
+                for b in timed[i + 1:]:
+                    if _overlaps(a.start_time, a.end_time, b.start_time, b.end_time):  # type: ignore[arg-type]
+                        found.append((day, a, b))
+        return sorted(found, key=lambda x: (x[0], x[1].start_time or ""))
 
     def entry_conflicts(self, weekday: int, start: str, end: str, exclude_id: int | None = None) -> list[str]:
         titles = []

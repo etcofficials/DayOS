@@ -64,14 +64,26 @@ class Task:
     estimate_minutes: int | None = None
     created_at: str = ""
     completed_at: str | None = None
+    tags: str = ""
+    project_id: int | None = None
+    actual_minutes: int | None = None
+    recurrence: str = ""
+    recur_interval: int = 1
+    next_task_id: int | None = None
     subject_name: str | None = None
     goal_title: str | None = None
+    project_name: str | None = None
     subtask_total: int = 0
     subtask_done: int = 0
+    blocked_by: int = 0
 
     @property
     def done(self) -> bool:
         return self.completed_at is not None
+
+    @property
+    def tag_list(self) -> list[str]:
+        return [t.strip() for t in self.tags.split(",") if t.strip()]
 
     @property
     def due(self) -> date | None:
@@ -106,6 +118,8 @@ class Habit:
     archived: int = 0
     position: int = 0
     created_at: str = ""
+    remind_time: str | None = None
+    weekly_target: int | None = None
 
     def is_scheduled(self, d: date) -> bool:
         return bool(self.weekdays & (1 << d.weekday()))
@@ -155,6 +169,7 @@ class JournalEntry:
     reflection: str = ""
     went_well: str = ""
     updated_at: str = ""
+    improve: str = ""
 
 
 @dataclass
@@ -169,7 +184,16 @@ class Event:
     category: str = ""
     subject_id: int | None = None
     created_at: str = ""
+    recurrence: str = ""
+    recur_until: str | None = None
+    remind_minutes: int | None = None
+    location: str = ""
+    task_id: int | None = None
     subject_name: str | None = None
+
+    @property
+    def day(self) -> date:
+        return date.fromisoformat(self.date)
 
 
 @dataclass
@@ -207,6 +231,7 @@ class AgendaItem:
     end_time: str | None = None
     detail: str = ""
     ref_id: int = 0
+    recurring: bool = False
 
     @property
     def sort_key(self) -> tuple:
@@ -312,3 +337,102 @@ class TaskSnapshot:
 
     task: dict[str, Any]
     subtasks: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class Project:
+    id: int
+    name: str
+    description: str = ""
+    status: str = "active"
+    goal_id: int | None = None
+    repo_url: str = ""
+    color: str = ""
+    start_date: str | None = None
+    target_date: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
+    goal_title: str | None = None
+    open_tasks: int = 0
+    done_tasks: int = 0
+    minutes: int = 0
+
+
+@dataclass
+class Milestone:
+    id: int
+    title: str
+    target_date: str | None = None
+    done_at: str | None = None
+    position: int = 0
+    created_at: str = ""
+    goal_id: int | None = None
+    project_id: int | None = None
+    due_date: str | None = None
+
+    @property
+    def done(self) -> bool:
+        return self.done_at is not None
+
+    @property
+    def when(self) -> date | None:
+        value = self.target_date or self.due_date
+        return date.fromisoformat(value) if value else None
+
+
+@dataclass
+class ProjectLog:
+    id: int
+    project_id: int
+    kind: str = "note"
+    date: str = ""
+    minutes: int | None = None
+    version: str = ""
+    text: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class InboxItem:
+    id: int
+    kind: str
+    text: str
+    url: str = ""
+    created_at: str = ""
+    processed_at: str | None = None
+    result_kind: str | None = None
+    result_id: int | None = None
+
+
+@dataclass
+class Reminder:
+    id: int
+    title: str
+    due_at: str
+    kind: str = "custom"
+    ref_id: int | None = None
+    note: str = ""
+    snoozed_until: str | None = None
+    dismissed_at: str | None = None
+    notified_at: str | None = None
+    created_at: str = ""
+
+
+@dataclass
+class WeeklyReview:
+    week_start: str
+    wins: str = ""
+    challenges: str = ""
+    priorities: str = ""
+    notes: str = ""
+    updated_at: str = ""
+
+
+@dataclass
+class RoutineItem:
+    id: int
+    routine: str
+    title: str
+    position: int = 0
+    archived: int = 0
+    created_at: str = ""

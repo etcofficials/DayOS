@@ -5,7 +5,7 @@ from datetime import date
 from src.models import Habit, from_row
 from src.repositories.base import Repository, clean_text
 from src.services import streaks
-from src.services.dates import ValidationError, iso, now_stamp, parse_date, today
+from src.services.dates import ValidationError, iso, now_stamp, parse_date, parse_time, time_str, today
 
 DAILY = 127
 
@@ -17,27 +17,51 @@ class HabitRepository(Repository):
             raise ValidationError("Choose at least one day of the week for this habit.")
         return weekdays
 
-    def create(self, name: str, description: str = "", weekdays: int = DAILY, start: date | None = None) -> int:
+    @staticmethod
+    def _extras(remind_time: str | None, weekly_target: int | None) -> tuple[str | None, int | None]:
+        remind = time_str(parse_time(remind_time, field="Reminder time")) if remind_time else None
+        if weekly_target in (0, None, ""):
+            target = None
+        else:
+            target = int(weekly_target)
+            if not 1 <= target <= 7:
+                raise ValidationError("A weekly target must be between 1 and 7 times.")
+        return remind, target
+
+    def create(self, name: str, description: str = "", weekdays: int = DAILY, start: date | None = None,
+               remind_time: str | None = None, weekly_target: int | None = None) -> int:
         name = clean_text(name, field="Habit name", required=True, max_len=80)
         description = clean_text(description, field="Description", max_len=500)
         weekdays = self._check_weekdays(weekdays)
+        remind, target = self._extras(remind_time, weekly_target)
         position = int(self.db.scalar("SELECT COALESCE(MAX(position), -1) + 1 FROM habits", default=0))
         with self.db.transaction():
             return self.db.insert(
-                "INSERT INTO habits (name, description, weekdays, start_date, position, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (name, description, weekdays, iso(start or today()), position, now_stamp()),
+                "INSERT INTO habits (name, description, weekdays, start_date, position, created_at, remind_time, "
+                "weekly_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, description, weekdays, iso(start or today()), position, now_stamp(), remind, target),
             )
 
-    def update(self, habit_id: int, name: str, description: str, weekdays: int) -> None:
+    def update(self, habit_id: int, name: str, description: str, weekdays: int,
+               remind_time: str | None = None, weekly_target: int | None = None) -> None:
         name = clean_text(name, field="Habit name", required=True, max_len=80)
         description = clean_text(description, field="Description", max_len=500)
         weekdays = self._check_weekdays(weekdays)
+        remind, target = self._extras(remind_time, weekly_target)
         with self.db.transaction():
             self.db.execute(
-                "UPDATE habits SET name = ?, description = ?, weekdays = ? WHERE id = ?",
-                (name, description, weekdays, habit_id),
+                "UPDATE habits SET name = ?, description = ?, weekdays = ?, remind_time = ?, weekly_target = ? "
+                "WHERE id = ?",
+                (name, description, weekdays, remind, target, habit_id),
             )
+
+    def week_count(self, habit_id: int, week_first_day: date) -> int:
+        """Completions in the 7 days starting ``week_first_day`` (for weekly targets)."""
+        from datetime import timedelta
+
+        return int(self.db.scalar(
+            "SELECT COUNT(*) FROM habit_logs WHERE habit_id = ? AND date BETWEEN ? AND ?",
+            (habit_id, iso(week_first_day), iso(week_first_day + timedelta(days=6))), 0))
 
     def set_archived(self, habit_id: int, archived: bool) -> None:
         with self.db.transaction():
