@@ -1,9 +1,10 @@
-"""The DayOS main window: sidebar navigation, page stack, shortcuts and toasts."""
+"""The DayOS main window: grouped sidebar navigation, lazily created pages, shortcuts and toasts."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon, QKeySequence, QShortcut
@@ -11,11 +12,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QButtonGroup,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -23,16 +22,21 @@ from PySide6.QtWidgets import (
 )
 
 from src.context import AppContext
+from src.modules import registry
+from src.modules.profiles import get_profile
+from src.ui import anim
+from src.ui.anim import tween
 from src.ui.bus import bus
 from src.ui.icons import bind_icon
 from src.ui.pages.base import Page
-from src.ui import anim
-from src.ui.anim import tween
 from src.ui.theme import theme
 from src.ui.widgets.art import Art
 from src.ui.widgets.common import Toast, label, separator, show_info
 from src.ui.widgets.nav import NavItem, Sidebar
 from src.version import APP_NAME
+
+if TYPE_CHECKING:
+    from src.modules.registry import ModuleSpec
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +44,9 @@ SIDEBAR_WIDE = 236
 SIDEBAR_NARROW = 74
 
 SHORTCUTS = [
-    ("Ctrl+1 … Ctrl+9", "Go to Today, Tasks, Calendar, Study, Exams, Notes, Habits, Goals, Insights"),
+    ("Ctrl+K", "Command palette: search everything and run any command"),
+    ("Ctrl+Shift+Space", "Quick capture (a task, note, idea, link or snippet) from anywhere in DayOS"),
+    ("Ctrl+1 … Ctrl+9", "Go to the first nine pages in the sidebar"),
     ("Ctrl+,", "Open Settings"),
     ("Ctrl+N", "New item on the current page"),
     ("Ctrl+F", "Search on the current page"),
@@ -51,7 +57,7 @@ SHORTCUTS = [
     ("F5", "Refresh the current page"),
     ("F1", "Show keyboard shortcuts"),
     ("Tasks: Space / Enter / Delete", "Complete, edit or delete the selected task"),
-    ("Study: Ctrl+Enter", "Start or pause the focus timer"),
+    ("Focus: Ctrl+Enter", "Start or pause the focus timer"),
 ]
 
 
@@ -63,14 +69,48 @@ def app_icon(paths) -> QIcon:
     return QIcon(str(svg)) if svg.exists() else QIcon()
 
 
+def visible_module_keys(settings) -> list[str]:
+    """Sidebar modules for the current profile / user choice, in registry order."""
+    chosen = settings.get("nav.modules")
+    if chosen is None:
+        chosen = list(get_profile(settings.get("profile")).modules)
+    wanted = set(chosen)
+    return [m.key for m in registry.MODULES if m.core or m.key in wanted]
+
+
+class _ArtBox(QWidget):
+    def __init__(self, on_resize) -> None:
+        super().__init__()
+        self._on_resize = on_resize
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._on_resize()
+
+
+class LazyPages(dict):
+    """``pages[key]`` creates a page the first time it's needed; iteration covers created pages only."""
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__()
+        self._window = window
+
+    def __missing__(self, key: str) -> Page:
+        page = self._window._create_page(key)
+        if page is None:
+            raise KeyError(key)
+        return page
+
+
 class MainWindow(QMainWindow):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__()
         self.ctx = ctx
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(app_icon(ctx.paths))
-        self.setMinimumSize(QSize(980, 660))
+        self.setMinimumSize(QSize(980, 640))
         self._closing_confirmed = False
+        self._collapsed = False
 
         root = QWidget()
         root.setObjectName("AppRoot")
@@ -79,6 +119,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self.nav_buttons: dict[str, NavItem] = {}
         self.sidebar = self._build_sidebar()
         layout.addWidget(self.sidebar)
         self.stack = QStackedWidget()
@@ -88,39 +129,31 @@ class MainWindow(QMainWindow):
         self.toast = Toast(root, reduce_motion=self.motion_reduced)
         anim.set_motion_provider(lambda: not self.motion_reduced())
         theme.about_to_change.connect(self._theme_crossfade)
-        self.pages: dict[str, Page] = {}
-        self._build_pages()
+        self.pages: LazyPages = LazyPages(self)
+        self._build_nav()
+        for spec in registry.MODULES:
+            if spec.eager:
+                self.pages[spec.key]  # noqa: B018 - create eagerly
         self._install_shortcuts()
         self._restore_geometry()
         self.set_sidebar_collapsed(bool(ctx.settings.get("sidebar_collapsed")), animate=False)
         self._schedule_midnight()
+        ctx.settings.subscribe(self._on_setting)
         self.navigate("today")
 
     # -- sidebar -------------------------------------------------------------
-    NAV = [
-        ("today", "Today", "today"),
-        ("tasks", "Tasks", "tasks"),
-        ("calendar", "Calendar", "calendar"),
-        ("study", "Study", "study"),
-        ("exams", "Exams", "exams"),
-        ("notes", "Notes", "notes"),
-        ("habits", "Habits", "habits"),
-        ("goals", "Goals", "goals"),
-        ("insights", "Insights", "insights"),
-    ]
-
-    def _build_sidebar(self) -> QWidget:
+    def _build_sidebar(self) -> Sidebar:
         side = Sidebar()
         side.setFixedWidth(SIDEBAR_WIDE)
         lay = QVBoxLayout(side)
-        lay.setContentsMargins(14, 20, 14, 16)
-        lay.setSpacing(3)
+        lay.setContentsMargins(12, 18, 12, 14)
+        lay.setSpacing(4)
 
         brand_row = QHBoxLayout()
-        brand_row.setContentsMargins(4, 0, 0, 0)
-        brand_row.setSpacing(12)
-        self.logo = Art("mark", 46, 46, Qt.AlignmentFlag.AlignCenter)
-        self.logo.setFixedSize(46, 46)
+        brand_row.setContentsMargins(6, 0, 0, 0)
+        brand_row.setSpacing(11)
+        self.logo = Art("mark", 40, 40, Qt.AlignmentFlag.AlignCenter)
+        self.logo.setFixedSize(40, 40)
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
         self.brand = QLabel(APP_NAME)
@@ -132,48 +165,36 @@ class MainWindow(QMainWindow):
         brand_row.addWidget(self.logo)
         brand_row.addLayout(brand_text, 1)
         lay.addLayout(brand_row)
-        lay.addSpacing(26)
+        lay.addSpacing(10)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        self.nav_buttons: dict[str, NavItem] = {}
+        lay.addWidget(side.scroll, 1)
 
-        def add_item(key: str, text: str, icon_name: str, shortcut: str) -> NavItem:
-            item = NavItem(text, icon_name)
-            item.setToolTip(f"{text}  ({shortcut})")
-            item.clicked.connect(lambda _=False, k=key: self.navigate(k))
-            self.nav_group.addButton(item)
-            self.nav_buttons[key] = item
-            return item
-
-        for i, (key, text, icon_name) in enumerate(self.NAV):
-            lay.addWidget(add_item(key, text, icon_name, f"Ctrl+{i + 1}"))
-
-        lay.addStretch(1)
         self.branch = Art("branch", 150, 250, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, 0.9)
-        self.branch.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.quote = QLabel("Better days\nbuild a better you.")
+        self.quote = QLabel("Better days\nbuild a better you.", self.branch)
         self.quote.setObjectName("SidebarQuote")
-        self.quote.setContentsMargins(14, 0, 0, 18)
-        art_box = QWidget()
-        art_box.setMaximumHeight(260)
-        art_lay = QGridLayout(art_box)
+        self.quote.setContentsMargins(16, 0, 0, 14)
+        art_box = _ArtBox(self._place_quote)
+        art_lay = QVBoxLayout(art_box)
         art_lay.setContentsMargins(0, 0, 0, 0)
-        art_lay.addWidget(self.branch, 0, 0)
-        art_lay.addWidget(self.quote, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.branch.setParent(art_box)
+        art_lay.addWidget(self.branch)
+        self.quote.setParent(art_box)
         self.art_box = art_box
-        lay.addWidget(art_box, 3)
+        side.set_art(art_box)
 
         self.timer_hint = label("", "caption", wrap=True)
         self.timer_hint.setContentsMargins(12, 4, 6, 4)
         self.timer_hint.hide()
         lay.addWidget(self.timer_hint)
-        lay.addSpacing(6)
+        lay.addSpacing(2)
         lay.addWidget(separator())
-        lay.addSpacing(6)
+        lay.addSpacing(4)
         bottom = QHBoxLayout()
         bottom.setSpacing(4)
-        bottom.addWidget(add_item("settings", "Settings", "settings", "Ctrl+,"), 1)
+        settings_item = self._make_item(registry.SETTINGS, "Ctrl+,")
+        bottom.addWidget(settings_item, 1)
         self.collapse_btn = QToolButton()
         self.collapse_btn.setObjectName("CollapseButton")
         self.collapse_btn.setToolTip("Collapse sidebar (Ctrl+B)")
@@ -185,15 +206,70 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.collapse_btn)
         self.sidebar_bottom = bottom
         lay.addLayout(bottom)
-        self._collapsed = False
         return side
+
+    def _place_quote(self) -> None:
+        self.quote.adjustSize()
+        self.quote.move(0, max(0, self.art_box.height() - self.quote.height()))
+
+    def _make_item(self, spec: "ModuleSpec", shortcut: str = "") -> NavItem:
+        item = NavItem(spec.title, spec.icon)
+        item.setToolTip(f"{spec.title}  ({shortcut})" if shortcut else spec.title)
+        item.clicked.connect(lambda _=False, k=spec.key: self.navigate(k))
+        self.nav_group.addButton(item)
+        self.nav_buttons[spec.key] = item
+        return item
+
+    def _build_nav(self) -> None:
+        """(Re)build the grouped nav list for the visible modules."""
+        nav = self.sidebar.nav
+        for key, item in list(self.nav_buttons.items()):
+            if key != "settings":
+                self.nav_group.removeButton(item)
+                item.deleteLater()
+                del self.nav_buttons[key]
+        while nav.lay.count():
+            it = nav.lay.takeAt(0)
+            if it.widget() is not None:
+                it.widget().deleteLater()
+        nav._groups.clear()
+        profile = get_profile(self.ctx.settings.get("profile"))
+        self.visible_keys = visible_module_keys(self.ctx.settings)
+        visible = set(self.visible_keys)
+        index = 0
+        for group_key, group_title in registry.GROUPS:
+            specs = [m for m in registry.MODULES if m.group == group_key and m.key in visible]
+            if not specs:
+                continue
+            nav.add_group(group_title)
+            for spec in specs:
+                index += 1
+                title = profile.terms.get(spec.key, spec.title)
+                item = self._make_item(spec, f"Ctrl+{index}" if index <= 9 else "")
+                item.setText(title)
+                item.setAccessibleName(title)
+                item.collapsed = self._collapsed
+                nav.add_item(item)
+        nav.finish()
+        nav.set_collapsed(self._collapsed)
+        current = self.stack.currentWidget() if hasattr(self, "stack") else None
+        if current is not None:
+            key = self.current_key()
+            if key in self.nav_buttons:
+                self.nav_buttons[key].setChecked(True)
+                QTimer.singleShot(0, lambda: self.sidebar.select(self.nav_buttons[key], animate=False))
+            else:
+                self.sidebar.nav.select(None)
+        QTimer.singleShot(0, self.sidebar.resync)
 
     def set_sidebar_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         self._collapsed = collapsed
+        self.sidebar.collapsed = collapsed
         for btn in self.nav_buttons.values():
             btn.collapsed = collapsed
             btn.update()
-        for w in (self.brand, self.brand_sub, self.art_box):
+        self.sidebar.nav.set_collapsed(collapsed)
+        for w in (self.brand, self.brand_sub):
             w.setVisible(not collapsed)
         self.timer_hint.setVisible(bool(self.timer_hint.text()) and not collapsed)
         self.sidebar_bottom.setDirection(
@@ -218,6 +294,10 @@ class MainWindow(QMainWindow):
         if self.isVisible():
             anim.snapshot_fade(self.centralWidget(), 300)
 
+    def _on_setting(self, key: str, _value) -> None:
+        if key in ("profile", "nav.modules"):
+            self._build_nav()
+
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         QTimer.singleShot(0, self.sidebar.resync)
@@ -228,32 +308,31 @@ class MainWindow(QMainWindow):
     def set_timer_hint(self, text: str) -> None:
         self.timer_hint.setText(text)
         self.timer_hint.setVisible(bool(text) and not self._collapsed)
-        study_btn = self.nav_buttons["study"]
-        study_btn.setToolTip(f"Study  (Ctrl+4)\n{text}" if text else "Study  (Ctrl+4)")
+        study_btn = self.nav_buttons.get("study")
+        if study_btn is not None:
+            study_btn.setToolTip(f"{study_btn.text()}\n{text}" if text else study_btn.text())
+
+    def set_badge(self, key: str, text: str) -> None:
+        item = self.nav_buttons.get(key)
+        if item is not None:
+            item.set_badge(text)
 
     # -- pages -----------------------------------------------------------------
-    def _build_pages(self) -> None:
-        from src.ui.pages.calendar import CalendarPage
-        from src.ui.pages.exams import ExamsPage
-        from src.ui.pages.goals import GoalsPage
-        from src.ui.pages.habits import HabitsPage
-        from src.ui.pages.insights import InsightsPage
-        from src.ui.pages.notes import NotesPage
-        from src.ui.pages.settings import SettingsPage
-        from src.ui.pages.study import StudyPage
-        from src.ui.pages.tasks import TasksPage
-        from src.ui.pages.today import TodayPage
+    def _create_page(self, key: str) -> Page | None:
+        spec = registry.get(key)
+        if spec is None:
+            return None
+        cls = registry.load_class(spec)
+        page = cls(self.ctx, self)
+        page.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        dict.__setitem__(self.pages, key, page)
+        self.stack.addWidget(page)
+        log.debug("Created page %s", key)
+        return page
 
-        classes = {
-            "today": TodayPage, "tasks": TasksPage, "calendar": CalendarPage, "study": StudyPage,
-            "exams": ExamsPage, "notes": NotesPage, "habits": HabitsPage, "goals": GoalsPage,
-            "insights": InsightsPage, "settings": SettingsPage,
-        }
-        for key, cls in classes.items():
-            page = cls(self.ctx, self)
-            page.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-            self.pages[key] = page
-            self.stack.addWidget(page)
+    def page_keys(self) -> list[str]:
+        """Every registered page (visible in the sidebar or not)."""
+        return registry.all_keys()
 
     def current_key(self) -> str:
         widget = self.stack.currentWidget()
@@ -263,20 +342,35 @@ class MainWindow(QMainWindow):
         return "today"
 
     def navigate(self, key: str) -> None:
-        if key not in self.pages:
+        if registry.get(key) is None:
             return
         current = self.stack.currentWidget()
-        if isinstance(current, Page) and current is not self.pages[key] and not current.can_leave():
-            self.nav_buttons[self.current_key()].setChecked(True)
-            self.sidebar.select(self.nav_buttons[self.current_key()])
+        target = self.pages[key]
+        if isinstance(current, Page) and current is not target and not current.can_leave():
+            current_key = self.current_key()
+            if current_key in self.nav_buttons:
+                self.nav_buttons[current_key].setChecked(True)
+                self.sidebar.select(self.nav_buttons[current_key])
             return
-        if current is not self.pages[key] and self.isVisible():
+        if current is not target and self.isVisible():
             anim.snapshot_fade(self.stack, anim.PAGE, drift=10)
-        self.stack.setCurrentWidget(self.pages[key])
-        self.nav_buttons[key].setChecked(True)
-        self.sidebar.select(self.nav_buttons[key], animate=self.isVisible())
-        if not self.pages[key].isAncestorOf(QApplication.focusWidget()):
-            self.pages[key].setFocus(Qt.FocusReason.OtherFocusReason)
+        self.stack.setCurrentWidget(target)
+        item = self.nav_buttons.get(key)
+        if item is not None:
+            item.setChecked(True)
+            if key == "settings":
+                self.sidebar.nav.select(None)
+            else:
+                self.sidebar.select(item, animate=self.isVisible())
+        else:
+            checked = self.nav_group.checkedButton()
+            if checked is not None:
+                self.nav_group.setExclusive(False)
+                checked.setChecked(False)
+                self.nav_group.setExclusive(True)
+            self.sidebar.nav.select(None)
+        if not target.isAncestorOf(QApplication.focusWidget()):
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def page(self, key: str) -> Page:
         return self.pages[key]
@@ -288,8 +382,8 @@ class MainWindow(QMainWindow):
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(fn)
 
-        for i, (key, _, _) in enumerate(self.NAV):
-            add(f"Ctrl+{i + 1}", lambda k=key: self.navigate(k))
+        for i in range(9):
+            add(f"Ctrl+{i + 1}", lambda n=i: self._goto_index(n))
         add("Ctrl+,", lambda: self.navigate("settings"))
         add("Ctrl+N", lambda: self._current_page().new_item())
         add("Ctrl+F", lambda: self._current_page().focus_search())
@@ -299,6 +393,11 @@ class MainWindow(QMainWindow):
         add("Ctrl+Shift+T", self.quick_task)
         add("Ctrl+Shift+N", self.quick_note)
 
+    def _goto_index(self, n: int) -> None:
+        keys = [k for k in self.visible_keys if k != "settings"]
+        if n < len(keys):
+            self.navigate(keys[n])
+
     def _current_page(self) -> Page:
         return self.stack.currentWidget()  # type: ignore[return-value]
 
@@ -307,8 +406,8 @@ class MainWindow(QMainWindow):
         show_info(self, "Keyboard shortcuts", text)
 
     def quick_task(self) -> None:
-        from src.ui.dialogs import TaskDialog
         from src.services.dates import today
+        from src.ui.dialogs import TaskDialog
 
         TaskDialog(self.ctx, self, default_due=today()).exec()
 
@@ -342,7 +441,7 @@ class MainWindow(QMainWindow):
             except (ValueError, UnicodeError):
                 restored = False
         if not restored:
-            self.resize(1240, 800)
+            self.resize(1260, 820)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -350,7 +449,7 @@ class MainWindow(QMainWindow):
             self.toast._position()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        for page in self.pages.values():
+        for page in list(self.pages.values()):
             if not page.can_leave():
                 event.ignore()
                 return

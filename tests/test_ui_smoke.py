@@ -31,14 +31,17 @@ class UiSmokeTests(TempHomeTestCase):
         app.processEvents()
         super().tearDown()
 
-    def test_every_page_opens_in_both_themes(self):
-        for mode in ("dark", "light"):
-            theme.apply(mode)
-            for key in self.window.pages:
+    def test_every_page_opens_in_every_theme(self):
+        from src.ui.themes import THEME_IDS
+
+        for theme_id in THEME_IDS:
+            theme.apply(theme_id)
+            for key in self.window.page_keys():
                 self.window.navigate(key)
                 app.processEvents()
                 self.assertIs(self.window.stack.currentWidget(), self.window.pages[key])
-                self.assertTrue(self.window.nav_buttons[key].isChecked())
+                if key in self.window.nav_buttons:
+                    self.assertTrue(self.window.nav_buttons[key].isChecked())
 
     def test_dashboard_reflects_new_data_without_restart(self):
         self.window.navigate("today")

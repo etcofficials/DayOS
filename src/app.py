@@ -160,15 +160,17 @@ def run(argv: list[str] | None = None) -> int:
         ctx = AppContext.open(paths)
     except (DatabaseError, OSError) as exc:
         log.exception("Database could not be opened")
-        theme.apply("light")
+        theme.apply("paper")
         QMessageBox.critical(
             None, "DayOS can't open your data",
             f"{exc}\n\nYour database file was not changed. Backups are in:\n{paths.backups_dir}",
         )
         return 1
 
-    theme.apply(ctx.settings.get("theme"))
-    ctx.settings.subscribe(lambda key, value: theme.apply(value) if key == "theme" else None)
+    from src.ui.theme_settings import apply_from_settings, watch_settings
+
+    apply_from_settings(ctx.settings)
+    watch_settings(ctx.settings)
     theme.system_reduced_motion = system_reduced_motion()
 
     from src.ui.main_window import MainWindow
@@ -184,7 +186,7 @@ def run(argv: list[str] | None = None) -> int:
 
     if args.smoke_test:
         def smoke() -> None:
-            for key in window.pages:
+            for key in window.page_keys():
                 window.navigate(key)
                 app.processEvents()
             window.navigate("today")

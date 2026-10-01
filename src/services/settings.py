@@ -8,6 +8,7 @@ preferences; "Reset settings" leaves them alone and never touches user data.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from typing import Any, Callable
@@ -33,8 +34,50 @@ def _short_str(v: Any) -> bool:
     return isinstance(v, str) and len(v) <= 40
 
 
+def _str_max(n: int) -> Callable[[Any], bool]:
+    return lambda v: isinstance(v, str) and len(v) <= n
+
+
+def _str_list(max_items: int = 100, max_len: int = 200) -> Callable[[Any], bool]:
+    return lambda v: isinstance(v, list) and len(v) <= max_items and all(
+        isinstance(x, str) and len(x) <= max_len for x in v)
+
+
+def _opt_str_list(max_items: int = 100) -> Callable[[Any], bool]:
+    inner = _str_list(max_items, 60)
+    return lambda v: v is None or inner(v)
+
+
+def _str_dict(max_items: int = 50) -> Callable[[Any], bool]:
+    return lambda v: isinstance(v, dict) and len(v) <= max_items and all(
+        isinstance(k, str) and isinstance(x, str) and len(k) <= 40 and len(x) <= 40 for k, x in v.items())
+
+
+def _number_range(lo: float, hi: float) -> Callable[[Any], bool]:
+    return lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def _hhmm(v: Any) -> bool:
+    if not isinstance(v, str) or len(v) != 5 or v[2] != ":":
+        return False
+    try:
+        return 0 <= int(v[:2]) <= 23 and 0 <= int(v[3:]) <= 59
+    except ValueError:
+        return False
+
+
+THEME_CHOICES = ("system", "paper", "midnight", "zen", "aurora", "espresso", "light", "dark")
+FONT_SCALES = (0.9, 1.0, 1.1, 1.25)
+PROFILE_CHOICES = ("general", "school", "college", "learner", "developer", "professional", "creator")
+
 PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
-    "theme": ("light", _choice("system", "light", "dark")),
+    "theme": ("paper", _choice(*THEME_CHOICES)),
+    "theme.accents": ({}, _str_dict()),
+    "font_scale": (1.0, lambda v: v in FONT_SCALES and not isinstance(v, bool)),
+    "profile": ("general", _choice(*PROFILE_CHOICES)),
+    "nav.modules": (None, _opt_str_list()),
+    "dashboard.widgets": (None, _opt_str_list()),
+    "onboarded": (False, _bool),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),
     "date_format": ("dmy", _choice("dmy", "mdy", "iso")),
@@ -72,9 +115,10 @@ class Settings:
             value = self._values.get(key, default)
             if not valid(value):
                 log.warning("Invalid value for setting %r; using default", key)
-                return default
-            return value
-        return self._values.get(key)
+                value = default
+            return copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+        value = self._values.get(key)
+        return copy.deepcopy(value) if isinstance(value, (dict, list)) else value
 
     def set(self, key: str, value: Any) -> None:
         if key in PREFERENCES:

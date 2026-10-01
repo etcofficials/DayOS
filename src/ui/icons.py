@@ -37,6 +37,7 @@ _P = {
     "chev-left": '<path d="M14.5 6l-6 6 6 6"/>',
     "chev-right": '<path d="M9.5 6l6 6-6 6"/>',
     "chev-down": '<path d="M6 9.5l6 6 6-6"/>',
+    "chev-up": '<path d="M6 14.5l6-6 6 6"/>',
     "menu": '<path d="M4 7h16M4 12h16M4 17h16"/>',
     "sidebar": '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9 4.5v15"/>',
     "pin": '<path d="M9 4h6l-1 5 3 3v1.5H7V12l3-3z"/><path d="M12 13.5V20"/>',

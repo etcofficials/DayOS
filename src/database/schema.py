@@ -249,8 +249,31 @@ def _migrate_v1(db: Database) -> None:
         db.execute(statement)
 
 
+V1_PAGES = ["today", "tasks", "calendar", "study", "exams", "notes", "habits", "goals", "insights"]
+V1_DATA_TABLES = ("tasks", "notes", "habits", "goals", "events", "timetable", "study_sessions", "exams", "journal")
+
+
+def _migrate_v2(db: Database) -> None:
+    """DayOS 2 foundation: carry v1 preferences over to the new theme and navigation system.
+
+    * ``theme`` "light"/"dark" become the equivalent v2 themes (Paper & Sage / Midnight Focus).
+    * A database that already holds v1 records keeps exactly the v1 sidebar pages, so upgrading
+      never hides anything the user was using, and skips the first-run welcome.
+    No user records are modified.
+    """
+    db.execute("""UPDATE settings SET value = '"paper"' WHERE key = 'theme' AND value = '"light"'""")
+    db.execute("""UPDATE settings SET value = '"midnight"' WHERE key = 'theme' AND value = '"dark"'""")
+    has_data = any(db.scalar(f"SELECT EXISTS (SELECT 1 FROM {t})", default=0) for t in V1_DATA_TABLES)
+    if has_data:
+        import json
+
+        db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('nav.modules', ?)", (json.dumps(V1_PAGES),))
+        db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('onboarded', 'true')")
+
+
 MIGRATIONS: list[tuple[int, Migration]] = [
     (1, _migrate_v1),
+    (2, _migrate_v2),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

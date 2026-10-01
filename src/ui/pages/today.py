@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -43,6 +44,8 @@ from src.ui.task_actions import TaskActions
 from src.ui.theme import KIND_COLORS, serif, theme
 from src.ui.widgets.art import Art
 from src.ui.widgets.charts import ProgressRing
+from src.modules.profiles import get_profile
+from src.ui.widgets.dashboard import DashboardColumns
 from src.ui.widgets.common import (
     AnimatedButton,
     Card,
@@ -345,8 +348,9 @@ class StudyNook(Card):
         self.add_action(button("History", "link", "chev-right", lambda: page.main.navigate("study")))
         self.set_art(Art("corner", 130, 110, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, 0.85),
                      Qt.Corner.BottomLeftCorner)
-        row = QHBoxLayout()
+        row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         row.setSpacing(18)
+        self.row = row
         ring_box = QWidget()
         ring_box.setFixedSize(178, 178)
         grid = QGridLayout(ring_box)
@@ -369,7 +373,7 @@ class StudyNook(Card):
         overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         overlay.setLayout(center)
         grid.addWidget(overlay, 0, 0)
-        row.addWidget(ring_box, 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(ring_box, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         side = QVBoxLayout()
         side.setSpacing(6)
         side.addWidget(label("Subject", "muted"))
@@ -398,6 +402,15 @@ class StudyNook(Card):
         self.summary = label("", "caption", wrap=True)
         self.summary.setContentsMargins(120, 0, 0, 0)
         self.body.addWidget(self.summary)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        narrow = self.width() < 500
+        direction = QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight
+        if self.row.direction() != direction:
+            self.row.setDirection(direction)
+            self.summary.setContentsMargins(0 if narrow else 120, 0, 0, 0)
+            self.summary.setAlignment(Qt.AlignmentFlag.AlignHCenter if narrow else Qt.AlignmentFlag.AlignLeft)
 
     def _start(self) -> None:
         study = self.page.study()
@@ -468,7 +481,7 @@ class TodayPage(Page):
         # row 1: plan + your day
         self.plan_card = Card("A gentle plan", "list")
         self.plan_count = label("", "muted")
-        self.plan_progress = ThinProgress(0.0, "accent_dark" if theme.mode == "light" else "accent", 6)
+        self.plan_progress = ThinProgress(0.0, "progress", 6)
         self.plan_progress.setFixedWidth(170)
         prog = QVBoxLayout()
         prog.setSpacing(6)
@@ -488,10 +501,6 @@ class TodayPage(Page):
         add_event = button("Add event", "ghost", "plus", self._add_event, "Add an event for today")
         self.day_card.body.addWidget(add_event, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.row1 = QGridLayout()
-        self.row1.setHorizontalSpacing(16)
-        self.row1.setVerticalSpacing(16)
-        outer.addLayout(self.row1)
 
         # row 2: study nook, rituals, coming up
         self.nook = StudyNook(self)
@@ -515,13 +524,14 @@ class TodayPage(Page):
         self.coming_card.body.addLayout(self.coming_list)
         self.coming_card.body.addSpacing(96)
 
-        self.row2 = QGridLayout()
-        self.row2.setHorizontalSpacing(16)
-        self.row2.setVerticalSpacing(16)
-        outer.addLayout(self.row2)
+        self.board = DashboardColumns()
+        outer.addWidget(self.board)
         outer.addStretch(1)
-        self._columns = 0
-        self._relayout(force=True)
+        self.cards: dict[str, QWidget] = {
+            "plan": self.plan_card, "day": self.day_card, "focus": self.nook,
+            "rituals": self.rituals_card, "coming": self.coming_card,
+        }
+        self._apply_widgets()
 
         self._clock_timer = QTimer(self)
         self._clock_timer.setSingleShot(True)
@@ -541,7 +551,6 @@ class TodayPage(Page):
             self.nook.sync()
 
     def _theme_changed(self) -> None:
-        self.plan_progress.set_color("accent_dark" if theme.mode == "light" else "accent")
         bind_icon(self.header.theme_btn, "moon" if theme.mode == "light" else "sun", "text2", 18)
 
     def _quick_add(self) -> QHBoxLayout:
@@ -567,47 +576,20 @@ class TodayPage(Page):
         row.addWidget(frame)
         return row
 
-    # -- responsive layout ------------------------------------------------------
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._relayout()
+    # -- dashboard widgets ---------------------------------------------------------
+    def widget_keys(self) -> list[str]:
+        """The dashboard widgets to show, in order (user choice, else the profile's defaults)."""
+        chosen = self.ctx.settings.get("dashboard.widgets")
+        if chosen is None:
+            chosen = list(get_profile(self.ctx.settings.get("profile")).widgets)
+        return [k for k in chosen if k in self.cards]
 
-    def _relayout(self, force: bool = False) -> None:
-        w = self.width()
-        cols = 3 if w >= 1180 else (2 if w >= 860 else 1)
-        if cols == self._columns and not force:
-            return
-        self._columns = cols
-        for grid in (self.row1, self.row2):
-            for i in reversed(range(grid.count())):
-                grid.takeAt(i)
-            for c in range(3):
-                grid.setColumnStretch(c, 0)
-        if cols == 1:
-            for i, card in enumerate((self.plan_card, self.day_card)):
-                self.row1.addWidget(card, i, 0)
-            for i, card in enumerate((self.nook, self.rituals_card, self.coming_card)):
-                self.row2.addWidget(card, i, 0)
-            self.row1.setColumnStretch(0, 1)
-            self.row2.setColumnStretch(0, 1)
-            return
-        self.row1.addWidget(self.plan_card, 0, 0)
-        self.row1.addWidget(self.day_card, 0, 1)
-        self.row1.setColumnStretch(0, 11)
-        self.row1.setColumnStretch(1, 10)
-        if cols == 3:
-            self.row2.addWidget(self.nook, 0, 0)
-            self.row2.addWidget(self.rituals_card, 0, 1)
-            self.row2.addWidget(self.coming_card, 0, 2)
-            self.row2.setColumnStretch(0, 13)
-            self.row2.setColumnStretch(1, 9)
-            self.row2.setColumnStretch(2, 10)
-        else:
-            self.row2.addWidget(self.nook, 0, 0, 1, 2)
-            self.row2.addWidget(self.rituals_card, 1, 0)
-            self.row2.addWidget(self.coming_card, 1, 1)
-            self.row2.setColumnStretch(0, 1)
-            self.row2.setColumnStretch(1, 1)
+    def _apply_widgets(self) -> None:
+        keys = self.widget_keys()
+        for key, card in self.cards.items():
+            if key not in keys:
+                card.hide()
+        self.board.set_widgets([self.cards[k] for k in keys])
 
     # -- clock -------------------------------------------------------------------
     def _tick_clock(self) -> None:
@@ -637,6 +619,7 @@ class TodayPage(Page):
     # -- refresh -------------------------------------------------------------------
     def refresh(self) -> None:
         day = today()
+        self._apply_widgets()
         self._tick_clock()
         self.header.headline.setText(HEADLINES[day.toordinal() % len(HEADLINES)])
         name = str(self.ctx.settings.get("user_name") or "").strip()
@@ -900,7 +883,8 @@ class TodayPage(Page):
                 self.toast("Intention saved")
 
     def toggle_theme(self) -> None:
-        self.ctx.settings.set("theme", "dark" if theme.mode == "light" else "light")
+        """Switch between the current theme and its light/dark counterpart."""
+        self.ctx.settings.set("theme", theme.theme.counterpart or ("midnight" if theme.mode == "light" else "paper"))
         bus.notify("settings")
 
     def _quick_note(self) -> None:

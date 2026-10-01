@@ -119,7 +119,7 @@ class HabitHistory(QWidget):
             scheduled = self.habit.is_scheduled(d)
             if d > self.ref:
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(theme.color("elevated") if theme.mode == "light" else theme.color("sidebar"))
+                p.setBrush(theme.color("track"))
                 p.drawRoundedRect(r, 4, 4)
             elif d in self.done:
                 p.setPen(Qt.PenStyle.NoPen)

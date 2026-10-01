@@ -171,7 +171,7 @@ class AnimatedButton(QPushButton):
         if self.variant == "segment" and self.isChecked():
             parent = self.parentWidget()
             accent_style = parent is not None and parent.property("segstyle") == "accent"
-            fg = fg_h = "on_primary" if accent_style else "text"
+            fg = fg_h = "on_segment_active" if accent_style else "text"
         hover = self._hover if self.isEnabled() else 0.0
         fill: QColor | None = None
         if bg or bg_h:
@@ -194,13 +194,13 @@ class AnimatedButton(QPushButton):
             p.setOpacity(0.5)
         fill, text_color, edge = self._colors()
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        radius = r.height() / 2 if self.property("round") else min(10.0, r.height() / 2)
+        radius = r.height() / 2 if self.property("round") else min(theme.shape.control_radius, r.height() / 2)
         if (fill is not None and fill.alpha() > 0) or edge is not None:
             p.setPen(QPen(edge, 1) if edge is not None else Qt.PenStyle.NoPen)
             p.setBrush(fill if fill is not None else Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(r, radius, radius)
         if self.hasFocus() and getattr(self, "_kbd_focus", False):
-            p.setPen(QPen(theme.color("accent"), 2))
+            p.setPen(QPen(theme.color("focus"), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(r.adjusted(1, 1, -1, -1), max(0.0, radius - 1), max(0.0, radius - 1))
         fm = self.fontMetrics()
@@ -446,7 +446,7 @@ class Card(QFrame):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         left, top, right, bottom = self.INSET
         body = QRectF(self.rect()).adjusted(left, top, -right, -bottom)
-        paint_card(p, body, self._lift, self.RADIUS)
+        paint_card(p, body, self._lift, theme.shape.card_radius)
         p.end()
 
 
@@ -454,7 +454,8 @@ def paint_card(p: QPainter, body: QRectF, lift: float = 0.0, radius: float = 16.
                fill_key: str = "surface") -> None:
     """Shared card painting: layered soft shadow, fill and hairline border."""
     shadow = theme.color("shadow")
-    strength = 1.8 if theme.mode == "dark" else 1.0
+    strength = theme.shape.shadow
+    lift = lift * theme.shape.hover_lift
     p.setPen(Qt.PenStyle.NoPen)
     for i, alpha in enumerate((0.045, 0.03, 0.018)):
         c = QColor(shadow)
@@ -599,7 +600,7 @@ class ThinProgress(QWidget):
         r = QRectF(self.rect())
         radius = r.height() / 2
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(theme.color("elevated") if theme.mode == "light" else theme.color("hover"))
+        p.setBrush(theme.color("track"))
         p.drawRoundedRect(r, radius, radius)
         if self._shown > 0.001:
             fill = QRectF(r.x(), r.y(), max(r.height(), r.width() * self._shown), r.height())
@@ -656,7 +657,7 @@ class RoundCheck(QAbstractButton):
         accent = theme.color("accent")
         prog = self._progress
         if self.hasFocus():
-            p.setPen(QPen(theme.color("accent_dark"), 1.4))
+            p.setPen(QPen(theme.color("focus"), 1.4))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(r.adjusted(-2.5, -2.5, 2.5, 2.5))
         ring = blend(theme.color("text3"), accent, max(self._hover, prog))
@@ -757,15 +758,17 @@ class SegmentBar(QFrame):
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         p.setPen(QPen(theme.color("divider"), 1))
         p.setBrush(theme.color("elevated"))
-        p.drawRoundedRect(r, 12, 12)
+        outer = theme.shape.pill_radius
+        p.drawRoundedRect(r, outer, outer)
         if not self._pill.isNull():
             if self.property("segstyle") == "accent":
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(theme.color("accent_dark") if theme.mode == "light" else theme.color("primary"))
+                p.setBrush(theme.color("segment_active"))
             else:
                 p.setPen(QPen(theme.color("border"), 1))
                 p.setBrush(theme.color("surface"))
-            p.drawRoundedRect(self._pill.adjusted(0.5, 0.5, -0.5, -0.5), 9, 9)
+            inner = max(3.0, outer - 3)
+            p.drawRoundedRect(self._pill.adjusted(0.5, 0.5, -0.5, -0.5), inner, inner)
         p.end()
 
     def set_current(self, key: str) -> None:

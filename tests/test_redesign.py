@@ -97,8 +97,9 @@ class RedesignUiTests(TempHomeTestCase):
         super().tearDown()
 
     def test_light_theme_is_the_first_launch_default(self):
-        self.assertEqual(self.ctx.settings.get("theme"), "light")
+        self.assertEqual(self.ctx.settings.get("theme"), "paper")
         self.assertEqual(theme.mode, "light")
+        self.assertEqual(theme.id, "paper")
 
     def test_dashboard_theme_toggle_switches_and_persists(self):
         today = self.window.pages["today"]
@@ -108,15 +109,15 @@ class RedesignUiTests(TempHomeTestCase):
         self.window.close()
         pump(20)
         self.reopen()
-        self.assertEqual(self.ctx.settings.get("theme"), "dark")
-        theme.apply("light")
+        self.assertEqual(self.ctx.settings.get("theme"), "midnight")
+        theme.apply("paper")
 
     def test_navigation_moves_the_selection_pill(self):
         sidebar = self.window.sidebar
         self.window.navigate("notes")
         pump(400)
         target = self.window.nav_buttons["notes"]
-        top = target.mapTo(sidebar, target.rect().topLeft()).y()
+        top = target.mapTo(sidebar.nav, target.rect().topLeft()).y()
         self.assertAlmostEqual(sidebar._pill.y(), top + 1.5, delta=1.0)
         self.assertTrue(target.isChecked())
 

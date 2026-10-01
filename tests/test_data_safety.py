@@ -163,8 +163,8 @@ class TransferTests(TempHomeTestCase):
 class SettingsTests(TempHomeTestCase):
     def test_defaults_persistence_and_validation(self):
         s = self.ctx.settings
-        self.assertEqual((s.get("theme"), s.get("week_start"), s.get("clock_24h")), ("light", 0, True))
-        s.set("theme", "dark")
+        self.assertEqual((s.get("theme"), s.get("week_start"), s.get("clock_24h")), ("paper", 0, True))
+        s.set("theme", "aurora")
         s.set("week_start", 6)
         with self.assertRaises(ValueError):
             s.set("theme", "neon")
@@ -173,14 +173,14 @@ class SettingsTests(TempHomeTestCase):
         with self.assertRaises(KeyError):
             s.set("unknown", 1)
         self.reopen()
-        self.assertEqual((self.ctx.settings.get("theme"), self.ctx.settings.get("week_start")), ("dark", 6))
+        self.assertEqual((self.ctx.settings.get("theme"), self.ctx.settings.get("week_start")), ("aurora", 6))
 
     def test_corrupt_values_fall_back_to_defaults(self):
         with self.ctx.db.transaction():
             self.ctx.db.execute("INSERT INTO settings (key, value) VALUES ('theme', '{broken')")
             self.ctx.db.execute("INSERT INTO settings (key, value) VALUES ('week_start', '\"monday\"')")
         self.reopen()
-        self.assertEqual(self.ctx.settings.get("theme"), "light")
+        self.assertEqual(self.ctx.settings.get("theme"), "paper")
         self.assertEqual(self.ctx.settings.get("week_start"), 0)
 
     def test_reset_keeps_data_and_state(self):
@@ -188,7 +188,7 @@ class SettingsTests(TempHomeTestCase):
         self.ctx.settings.set("theme", "dark")
         self.ctx.settings.set("state.window_geometry", "abc")
         self.ctx.settings.reset_preferences()
-        self.assertEqual(self.ctx.settings.get("theme"), "light")
+        self.assertEqual(self.ctx.settings.get("theme"), "paper")
         self.assertEqual(self.ctx.settings.get("state.window_geometry"), "abc")
         self.assertEqual(len(self.ctx.tasks.list("all")), 1)
 

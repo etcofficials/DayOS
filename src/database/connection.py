@@ -119,6 +119,9 @@ class Database:
             log.warning("WAL checkpoint failed", exc_info=True)
 
     def close(self) -> None:
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         try:
             self.checkpoint()
             self.conn.close()

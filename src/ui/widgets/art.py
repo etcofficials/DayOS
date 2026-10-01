@@ -1,4 +1,9 @@
-"""Botanical artwork: bundled SVGs painted crisply at any size, recoloured per theme."""
+"""Theme artwork: bundled SVGs painted crisply at any size, recoloured (or swapped) per theme.
+
+Each theme maps the base botanical palette (``themes.ART_BASE``) to its own colours and may
+replace individual illustrations through ``Theme.art_variants`` (e.g. Zen uses stones instead
+of a potted plant).
+"""
 
 from __future__ import annotations
 
@@ -13,14 +18,6 @@ from src.config import resource_root
 from src.ui.theme import theme
 
 log = logging.getLogger(__name__)
-
-# Light artwork colour -> dark theme colour (see tools/make_art.py).
-ART_DARK = {
-    "#71896C": "#7E9775", "#8FA77F": "#6A8262", "#AFC2A2": "#586C53", "#5E7458": "#8CA383",
-    "#C77D59": "#A86C4E", "#B06C4B": "#8C5A41", "#E3A47E": "#CC8F6B", "#E8E2D3": "#343D35",
-    "#DCD3C1": "#3F4A40", "#EFF1E7": "#2A322B", "#E1E7DA": "#2C352D", "#CFDAC9": "#334034",
-    "#B9C8B2": "#3C4B3D", "#F3F4EC": "#242B25",
-}
 
 _svg_text: dict[str, str] = {}
 _renderers: dict[tuple[str, str], QSvgRenderer] = {}
@@ -39,12 +36,13 @@ def _load(name: str) -> str:
 
 
 def renderer(name: str) -> QSvgRenderer:
-    key = (name, theme.mode)
+    """Renderer for ``name`` in the active theme: its variant artwork, recoloured with its palette."""
+    name = theme.art_name(name)
+    key = (name, theme.id)
     if key not in _renderers:
         text = _load(name)
-        if theme.mode == "dark":
-            for light, dark in ART_DARK.items():
-                text = text.replace(light, dark)
+        for base, themed in theme.theme.art.items():
+            text = text.replace(base, themed)
         _renderers[key] = QSvgRenderer(QByteArray(text.encode("utf-8")))
     return _renderers[key]
 
@@ -53,7 +51,7 @@ def art_pixmap(name: str, width: int, height: int) -> QPixmap:
     """Render artwork to a device-pixel-ratio aware pixmap (cached)."""
     app = QApplication.instance()
     dpr = app.devicePixelRatio() if app else 1.0  # type: ignore[union-attr]
-    key = (name, theme.mode, width, height, dpr)
+    key = (name, theme.id, width, height, dpr)
     if key not in _pixmaps:
         pm = QPixmap(QSize(max(1, int(width * dpr)), max(1, int(height * dpr))))
         pm.fill(Qt.GlobalColor.transparent)

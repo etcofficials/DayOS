@@ -164,7 +164,7 @@ class HBarList(QWidget):
         label_w = min(self.width() * 0.34, max((fm.horizontalAdvance(r[0]) for r in self._rows), default=0) + 12)
         value_w = max((fm.horizontalAdvance(r[2]) for r in self._rows), default=0) + 12
         track_w = max(20.0, self.width() - label_w - value_w)
-        track_bg = theme.color("elevated") if theme.mode == "light" else theme.color("hover")
+        track_bg = theme.color("track")
         for i, (lbl, frac, value_text, color_key) in enumerate(self._rows):
             y = i * self.ROW
             p.setPen(theme.color("text"))
@@ -326,7 +326,7 @@ class ProgressRing(QWidget):
             p.setPen(QPen(glow, self._thickness + 10 * self._pulse))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(rect)
-        track = QPen(theme.color("accent_soft") if theme.mode == "light" else theme.color("hover"), self._thickness)
+        track = QPen(theme.color("accent_soft") if theme.mode == "light" else theme.color("track"), self._thickness)
         track.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(track)
         p.drawEllipse(rect)

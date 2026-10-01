@@ -16,7 +16,7 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "assets" / "art"
 
-# Palette (light theme). Keep in sync with ART_DARK in src/ui/widgets/art.py.
+# Base palette. Each theme recolours these (src/ui/themes.py, Theme.art); keep the two in sync.
 LEAF1 = "#71896C"
 LEAF2 = "#8FA77F"
 LEAF3 = "#AFC2A2"
@@ -157,11 +157,85 @@ def pot() -> str:
     return svg(120, 110, b)
 
 
+# -- theme variants (they use the same base palette, so each theme recolours them) --------
+
+def zen_branch() -> str:
+    """A quiet open circle, a single stem and balanced stones (Zen Minimal sidebar)."""
+    b = (f'<path d="M128 108 A52 52 0 1 1 112 62" fill="none" stroke="{HILL3}" stroke-width="2.4" '
+         f'stroke-linecap="round" opacity=".9"/>')
+    b += branch((44, 282), (52, 230), (70, 190), (98, 150), 7, 18, (LEAF1, LEAF2), 1.3, seed=12, spread=50, start=.3)
+    b += f'<ellipse cx="96" cy="292" rx="46" ry="7" fill="{HILL1}"/>'
+    b += f'<ellipse cx="96" cy="280" rx="34" ry="12" fill="{HILL3}"/>'
+    b += f'<ellipse cx="98" cy="262" rx="24" ry="9" fill="{HILL2}"/>'
+    b += f'<ellipse cx="97" cy="249" rx="14" ry="6" fill="{FRAME2}"/>'
+    return svg(160, 300, b)
+
+
+def zen_stones() -> str:
+    b = f'<ellipse cx="60" cy="102" rx="40" ry="5" fill="{HILL1}"/>'
+    b += f'<ellipse cx="60" cy="90" rx="30" ry="11" fill="{HILL3}"/>'
+    b += f'<ellipse cx="62" cy="72" rx="21" ry="8.5" fill="{HILL2}"/>'
+    b += f'<ellipse cx="61" cy="59" rx="12" ry="5.5" fill="{FRAME2}"/>'
+    b += branch((92, 96), (96, 80), (100, 64), (96, 44), 4, 12, (LEAF1, LEAF2), 1.1, seed=4, spread=52, start=.3)
+    return svg(120, 110, b)
+
+
+def aurora_branch() -> str:
+    """Soft orbits, a small planet and a few stars (Aurora sidebar)."""
+    b = ""
+    for i, (rx, ry, op) in enumerate(((38, 14, .55), (54, 20, .4), (70, 26, .28))):
+        b += (f'<ellipse cx="82" cy="210" rx="{rx}" ry="{ry}" fill="none" stroke="{LEAF2}" stroke-width="1.4" '
+              f'opacity="{op}" transform="rotate(-24 82 210)"/>')
+    b += f'<circle cx="82" cy="210" r="15" fill="{POT}"/>'
+    b += f'<circle cx="77" cy="205" r="5" fill="{SUN}" opacity=".55"/>'
+    b += f'<circle cx="34" cy="236" r="4.5" fill="{POT2}"/>'
+    rnd = random.Random(31)
+    for _ in range(14):
+        x, y, r = rnd.uniform(14, 146), rnd.uniform(60, 290), rnd.uniform(.8, 2.0)
+        b += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{SUN}" opacity="{rnd.uniform(.35, .9):.2f}"/>'
+    return svg(160, 300, b)
+
+
+def aurora_orbit() -> str:
+    b = (f'<ellipse cx="60" cy="58" rx="46" ry="14" fill="none" stroke="{LEAF2}" stroke-width="1.6" opacity=".6" '
+         f'transform="rotate(-18 60 58)"/>')
+    b += f'<circle cx="60" cy="58" r="20" fill="{POT}"/><circle cx="53" cy="51" r="7" fill="{SUN}" opacity=".5"/>'
+    b += f'<circle cx="20" cy="22" r="1.8" fill="{SUN}"/><circle cx="100" cy="92" r="1.4" fill="{SUN}"/>'
+    b += f'<circle cx="96" cy="20" r="2.2" fill="{SUN}" opacity=".7"/>'
+    return svg(120, 110, b)
+
+
+def espresso_branch() -> str:
+    """A coffee-plant sprig with ripening cherries (Espresso sidebar)."""
+    b = branch((150, 300), (118, 230), (76, 160), (44, 30), 13, 40, (LEAF1, LEAF2, LEAF3), 2.0, seed=6, spread=46)
+    rnd = random.Random(17)
+    for t in (0.22, 0.38, 0.55, 0.7):
+        x, y, _ = bezier((150, 300), (118, 230), (76, 160), (44, 30), t)
+        for _ in range(3):
+            dx, dy = rnd.uniform(-7, 7), rnd.uniform(-5, 6)
+            b += f'<circle cx="{x + dx:.1f}" cy="{y + dy:.1f}" r="{rnd.uniform(3.4, 4.6):.1f}" fill="{rnd.choice((POT, POT2))}"/>'
+    return svg(160, 300, b)
+
+
+def espresso_cup() -> str:
+    b = f'<ellipse cx="60" cy="98" rx="44" ry="7" fill="{FRAME2}"/>'
+    b += f'<path d="M30 58 L90 58 L86 86 C84 94 76 98 68 98 L52 98 C44 98 36 94 34 86 Z" fill="{POT}"/>'
+    b += f'<path d="M89 64 C102 64 104 82 88 84" fill="none" stroke="{POT}" stroke-width="5" stroke-linecap="round"/>'
+    b += f'<ellipse cx="60" cy="58" rx="30" ry="5" fill="{POT2}"/>'
+    for x in (48, 60, 72):
+        b += (f'<path d="M{x} 48 C{x - 6} 40 {x + 6} 34 {x} 24" fill="none" stroke="{STEM}" stroke-width="2" '
+              f'stroke-linecap="round" opacity=".55"/>')
+    return svg(120, 110, b)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     files = {
         "mark.svg": mark(), "branch.svg": sidebar_branch(), "sprig.svg": sprig(), "window.svg": window_scene(),
         "corner.svg": corner_leaves(), "landscape.svg": landscape(), "pot.svg": pot(),
+        "zen-branch.svg": zen_branch(), "zen-stones.svg": zen_stones(),
+        "aurora-branch.svg": aurora_branch(), "aurora-orbit.svg": aurora_orbit(),
+        "espresso-branch.svg": espresso_branch(), "espresso-cup.svg": espresso_cup(),
     }
     for name, text in files.items():
         (OUT / name).write_text(text, encoding="utf-8")
