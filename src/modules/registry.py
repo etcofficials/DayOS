@@ -51,6 +51,8 @@ MODULES: list[ModuleSpec] = [
                "Focus timer, pomodoro presets and session history.", eager=True),
     ModuleSpec("exams", "Exams", "exams", "learn", "src.ui.pages.exams:ExamsPage",
                "Exam dates, chapter checklists, mistakes and mock-test scores."),
+    ModuleSpec("inbox", "Inbox", "inbox", "knowledge", "src.ui.pages.inbox:InboxPage",
+               "Everything you captured quickly, ready to sort into tasks, notes or projects."),
     ModuleSpec("notes", "Notes", "notes", "knowledge", "src.ui.pages.notes:NotesPage",
                "Your notes, searchable and pinned."),
     ModuleSpec("insights", "Insights", "insights", "home", "src.ui.pages.insights:InsightsPage",

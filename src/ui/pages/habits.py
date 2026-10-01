@@ -12,21 +12,25 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from src.models import Habit
-from src.services.dates import WEEKDAY_SHORT, ValidationError, format_date, today, week_start
+from src.repositories.routines import ROUTINES
+from src.services.dates import WEEKDAY_SHORT, ValidationError, format_date, format_time, today, week_start
 from src.services.streaks import completion_rate
 from src.ui.bus import bus
 from src.ui.pages.base import Page
 from src.ui.theme import theme
 from src.ui.widgets.common import (
     Card,
+    CollapsibleSection,
     EmptyState,
     FormDialog,
+    OptionalTime,
     PageHeader,
     RoundCheck,
     button,
@@ -208,6 +212,18 @@ class HabitDialog(FormDialog):
             presets.addWidget(button(text, "link", on_click=lambda m=m: self._preset(m)))
         presets.addStretch(1)
         self.add_row("", presets)
+        self.target = QSpinBox()
+        self.target.setRange(0, 7)
+        self.target.setSpecialValueText("Every scheduled day")
+        self.target.setSuffix(" times a week")
+        self.target.setValue(habit.weekly_target or 0 if habit else 0)
+        self.target.setToolTip("Flexible habits only need to be done a number of times each week, on any day.")
+        self.add_row("Goal", self.target)
+        self.remind = OptionalTime("Remind me at", habit.remind_time if habit else None,
+                                   bool(ctx.settings.get("clock_24h")))
+        self.add_row("Reminder", self.remind)
+        self.form.addRow(label("Reminders appear in DayOS (and as Windows notifications if you allow them in "
+                               "Settings). They stop for the day once the habit is done.", "caption", wrap=True))
         self.name.setFocus()
 
     def _preset(self, mask: int) -> None:
@@ -218,15 +234,90 @@ class HabitDialog(FormDialog):
         mask = sum(1 << i for i, b in enumerate(self.day_buttons) if b.isChecked())
         if not mask:
             raise ValidationError("Choose at least one day of the week.")
+        target = self.target.value() or None
+        remind = self.remind.value()
         if self.habit:
-            self.ctx.habits.update(self.habit.id, self.name.text(), self.desc.toPlainText(), mask)
+            self.ctx.habits.update(self.habit.id, self.name.text(), self.desc.toPlainText(), mask, remind, target)
         else:
-            self.ctx.habits.create(self.name.text(), self.desc.toPlainText(), mask)
-        bus.notify("habits")
+            self.ctx.habits.create(self.name.text(), self.desc.toPlainText(), mask, remind_time=remind,
+                                   weekly_target=target)
+        if remind and not self.ctx.settings.get("notify.habit"):
+            self.ctx.settings.set("notify.habit", True)
+        bus.notify("habits", "reminders")
+
+
+class RoutinesCard(Card):
+    """Optional morning / evening checklists, ticked off per day."""
+
+    def __init__(self, page: "HabitsPage") -> None:
+        super().__init__("Routines", "routine")
+        self.page = page
+        self.collapse = CollapsibleSection("Morning checklist and evening wind-down", expanded=False)
+        self.body.addWidget(self.collapse)
+        row = QHBoxLayout()
+        row.setSpacing(18)
+        self.columns: dict[str, QVBoxLayout] = {}
+        self.adders: dict[str, QLineEdit] = {}
+        for key, title in ROUTINES.items():
+            col = QVBoxLayout()
+            col.setSpacing(4)
+            col.addWidget(label(title, "heading"))
+            items = QVBoxLayout()
+            items.setSpacing(2)
+            col.addLayout(items)
+            add = QLineEdit()
+            add.setPlaceholderText("Add an item and press Enter")
+            add.setAccessibleName(f"Add to {title}")
+            add.returnPressed.connect(lambda k=key: self._add(k))
+            col.addWidget(add)
+            col.addStretch(1)
+            self.columns[key] = items
+            self.adders[key] = add
+            row.addLayout(col, 1)
+        self.collapse.body.addLayout(row)
+        self.summary = label("", "caption")
+        self.add_action(self.summary)
+
+    def refresh(self) -> None:
+        ctx = self.page.ctx
+        day = today()
+        done = ctx.routines.done_on(day)
+        total = done_n = 0
+        for key, layout in self.columns.items():
+            clear_layout(layout)
+            items = ctx.routines.items(key)
+            if not items:
+                layout.addWidget(label("No items yet.", "caption"))
+            for item in items:
+                r = QHBoxLayout()
+                cb = QCheckBox(item.title)
+                cb.setChecked(item.id in done)
+                cb.toggled.connect(lambda on, i=item.id: self._tick(i, on))
+                r.addWidget(cb, 1)
+                r.addWidget(tool_button("close", f"Remove “{item.title}”", lambda i=item.id: self._remove(i), 14))
+                layout.addLayout(r)
+                total += 1
+                done_n += item.id in done
+        self.summary.setText(f"{done_n} of {total} done today" if total else "")
+
+    def _add(self, key: str) -> None:
+        text = self.adders[key].text().strip()
+        if text and guarded(self, lambda: self.page.ctx.routines.add(key, text)):
+            self.adders[key].clear()
+            self.refresh()
+            self.collapse.set_expanded(True)
+
+    def _tick(self, item_id: int, on: bool) -> None:
+        if guarded(self, lambda: self.page.ctx.routines.set_done(item_id, today(), on)):
+            bus.notify("routines")
+
+    def _remove(self, item_id: int) -> None:
+        if guarded(self, lambda: self.page.ctx.routines.remove(item_id)):
+            self.refresh()
 
 
 class HabitsPage(Page):
-    domains = ("habits", "settings")
+    domains = ("habits", "settings", "routines")
     title = "Habits"
 
     def __init__(self, ctx, window) -> None:
@@ -247,6 +338,8 @@ class HabitsPage(Page):
             "a streak, and today only counts once it's done. Click any past day in the history to correct it.",
             "caption", wrap=True)
         outer.addWidget(rules)
+        self.routines = RoutinesCard(self)
+        outer.addWidget(self.routines)
         self.list_layout = QVBoxLayout()
         self.list_layout.setSpacing(12)
         outer.addLayout(self.list_layout)
@@ -256,6 +349,7 @@ class HabitsPage(Page):
     def refresh(self) -> None:
         clear_layout(self.list_layout)
         ref = today()
+        self.routines.refresh()
         habits = self.ctx.habits.list(include_archived=self.show_archived.isChecked())
         active = [h for h in habits if not h.archived]
         done_today = self.ctx.habits.done_on(ref)
@@ -288,6 +382,13 @@ class HabitsPage(Page):
         name_row = QHBoxLayout()
         name_row.addWidget(label(habit.name, "section"))
         name_row.addWidget(chip(schedule_text(habit.weekdays), "accent"))
+        if habit.weekly_target:
+            ws0 = week_start(ref, self.week_start)
+            n = self.ctx.habits.week_count(habit.id, ws0)
+            name_row.addWidget(chip(f"{n} of {habit.weekly_target} this week",
+                                    "accent" if n >= habit.weekly_target else "blue"))
+        if habit.remind_time:
+            name_row.addWidget(label(f"⏰ {format_time(habit.remind_time, self.clock24)}", "caption"))
         if habit.archived:
             name_row.addWidget(chip("Archived", ""))
         name_row.addStretch(1)

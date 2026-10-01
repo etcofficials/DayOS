@@ -91,7 +91,7 @@ PREFERENCES: dict[str, tuple[Any, Callable[[Any], bool]]] = {
     "workload.weekend_hours": (None, lambda v: v is None or _number_range(0.5, 18)(v)),
     "focus.break_reminder": (0, _int_range(0, 240)),
     "focus.cycles": (4, _int_range(2, 8)),
-    "capture.hotkey": ("Ctrl+Alt+Space", _str_max(40)),
+    "capture.hotkey": ("Ctrl+Alt+N", _str_max(40)),
     "capture.global": (True, _bool),
     "week_start": (0, _int_range(0, 6)),
     "clock_24h": (True, _bool),

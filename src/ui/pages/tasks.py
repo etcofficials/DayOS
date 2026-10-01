@@ -34,6 +34,7 @@ from src.ui.widgets.task_row import TaskRow, connect_row
 
 FILTER_LABELS = [
     ("today", "Today"),
+    ("week", "7 days"),
     ("upcoming", "Upcoming"),
     ("overdue", "Overdue"),
     ("nodate", "No date"),
@@ -43,6 +44,7 @@ FILTER_LABELS = [
 
 EMPTY_TEXT = {
     "today": ("Nothing due today", "Enjoy the space — or add something you'd like to get done today."),
+    "week": ("A quiet week ahead", "Nothing is due in the next seven days."),
     "upcoming": ("Nothing scheduled ahead", "Tasks with a future due date will appear here."),
     "overdue": ("You're all caught up", "No open tasks are past their due date."),
     "nodate": ("No undated tasks", "Tasks without a due date collect here, like an inbox."),
@@ -88,6 +90,20 @@ class TasksPage(Page):
         self.sort.setAccessibleName("Sort tasks")
         bar.addWidget(self.sort)
         self.root.addLayout(bar)
+        bar2 = QHBoxLayout()
+        bar2.setSpacing(10)
+        self.project_filter = QComboBox()
+        self.project_filter.setAccessibleName("Filter by project")
+        self.project_filter.currentIndexChanged.connect(lambda _: self.refresh())
+        self.tag_filter = QComboBox()
+        self.tag_filter.setAccessibleName("Filter by tag")
+        self.tag_filter.currentIndexChanged.connect(lambda _: self.refresh())
+        self.show_label = label("Show", "muted")
+        bar2.addWidget(self.show_label)
+        bar2.addWidget(self.project_filter)
+        bar2.addWidget(self.tag_filter)
+        bar2.addStretch(1)
+        self.root.addLayout(bar2)
 
         self.body = QWidget()
         self.stack = QStackedLayout(self.body)
@@ -116,16 +132,20 @@ class TasksPage(Page):
         counts = self.ctx.tasks.counts(ref)
         for key, text in FILTER_LABELS:
             n = counts.get(key, 0)
-            self.filters.set_label(key, f"{text} {n}" if key in ("today", "upcoming", "overdue", "nodate") and n else text)
+            self.filters.set_label(key, f"{text} {n}" if key in ("today", "week", "upcoming", "overdue", "nodate") and n
+                                   else text)
         open_total = counts.get("total", 0) - counts.get("completed", 0)
         self.header.set_subtitle(
             f"{open_total} open · {counts.get('completed', 0)} completed" if counts.get("total") else
             "Capture what you need to do, then check it off."
         )
+        self._fill_filters()
         filter_name = self.filters.current()
         selected = self.selected_id()
         had_focus = selected is not None and self._rows[selected].hasFocus()
-        tasks = self.ctx.tasks.list(filter_name, self.search.text(), self.sort.currentData(), ref)
+        tasks = self.ctx.tasks.list(filter_name, self.search.text(), self.sort.currentData(), ref,
+                                    tag=self.tag_filter.currentData() or "",
+                                    project_id=self.project_filter.currentData())
         clear_layout(self.list_layout)
         self._rows.clear()
         for task in tasks:
@@ -146,12 +166,28 @@ class TasksPage(Page):
             if tasks else ""
         )
 
+    def _fill_filters(self) -> None:
+        for combo, items, none_text in (
+                (self.project_filter, self.ctx.projects.choices(), "All projects"),
+                (self.tag_filter, [(t, f"#{t}") for t in self.ctx.tasks.tags()], "All tags")):
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(none_text, None)
+            for value, text in items:
+                combo.addItem(text, value)
+            index = combo.findData(current) if current is not None else 0
+            combo.setCurrentIndex(max(0, index))
+            combo.blockSignals(False)
+            combo.setVisible(combo.count() > 1)
+        self.show_label.setVisible(self.project_filter.count() > 1 or self.tag_filter.count() > 1)
+
     def _show_empty(self, filter_name: str) -> None:
         while self.empty_layout.count():
             w = self.empty_layout.takeAt(0).widget()
             if w:
                 w.deleteLater()
-        if self.search.text().strip():
+        if self.search.text().strip() or self.tag_filter.currentData() or self.project_filter.currentData():
             title, text = "No matching tasks", "Try a different search or another filter."
             actions = [("Clear search", self.search.clear)]
         else:

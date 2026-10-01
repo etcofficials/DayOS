@@ -34,12 +34,15 @@ from src.services.dates import (
     today,
     week_start,
 )
+from src.services import recurrence
 from src.ui.bus import bus
 from src.ui.dialogs import subject_items
 from src.ui.pages.base import Page
 from src.ui.theme import KIND_COLORS, theme
+from src.ui.widgets.day_timeline import DayTimeline
 from src.ui.widgets.common import (
     DateEdit,
+    FadeDialog,
     EmptyState,
     FormDialog,
     IdCombo,
@@ -63,11 +66,18 @@ KIND_NAMES = {"event": "Event", "class": "Class", "exam": "Exam", "deadline": "D
 
 # -- dialogs --------------------------------------------------------------------
 
+REMINDER_CHOICES = [(None, "No reminder"), (0, "At start time"), (5, "5 minutes before"), (10, "10 minutes before"),
+                    (15, "15 minutes before"), (30, "30 minutes before"), (60, "1 hour before"),
+                    (120, "2 hours before"), (1440, "1 day before")]
+
+
 class EventDialog(FormDialog):
     def __init__(self, ctx, parent=None, event: Event | None = None, day: date | None = None,
-                 kind: str = "event") -> None:
-        super().__init__("Edit entry" if event else ("New deadline" if kind == "deadline" else "New event"), parent, width=500)
+                 kind: str = "event", start_time: str | None = None) -> None:
+        super().__init__("Edit entry" if event else ("New deadline" if kind == "deadline" else "New event"), parent, width=520)
         self.ctx = ctx
+        if event is not None and event.recurrence:
+            event = ctx.schedule.get_event(event.id) or event  # edit the series, not one expanded occurrence
         self.event = event
         clock24 = bool(ctx.settings.get("clock_24h"))
         self.title_edit = QLineEdit(event.title if event else "")
@@ -86,16 +96,42 @@ class EventDialog(FormDialog):
         self.add_row("", self.all_day)
         times = QHBoxLayout()
         self.start = TimeEdit(clock24=clock24)
-        self.start.set_value(event.start_time if event and event.start_time else "09:00")
+        self.start.set_value(event.start_time if event and event.start_time else (start_time or "09:00"))
         self.has_end = QCheckBox("until")
         self.has_end.setChecked(bool(event and event.end_time) or not event)
         self.end = TimeEdit(clock24=clock24)
-        self.end.set_value(event.end_time if event and event.end_time else "10:00")
+        default_end = "10:00"
+        if start_time and not event:
+            h, m = (int(x) for x in start_time.split(":"))
+            default_end = f"{min(23, h + 1):02d}:{m:02d}"
+        self.end.set_value(event.end_time if event and event.end_time else default_end)
         times.addWidget(self.start)
         times.addWidget(self.has_end)
         times.addWidget(self.end)
         times.addStretch(1)
         self.add_row("Time", times)
+        self.location = QLineEdit(event.location if event else "")
+        self.location.setPlaceholderText("Optional, e.g. Library, Room 4")
+        self.add_row("Location", self.location)
+        rep_row = QHBoxLayout()
+        self.repeat = QComboBox()
+        for key, text in recurrence.RULES.items():
+            self.repeat.addItem(text, key)
+        self.repeat.setCurrentIndex(max(0, self.repeat.findData(event.recurrence if event else "")))
+        self.until = OptionalDate("until", date.fromisoformat(event.recur_until) if event and event.recur_until else None)
+        rep_row.addWidget(self.repeat, 1)
+        rep_row.addWidget(self.until, 1)
+        self.repeat.currentIndexChanged.connect(lambda _: self.until.setEnabled(bool(self.repeat.currentData())))
+        self.until.setEnabled(bool(self.repeat.currentData()))
+        self.add_row("Repeat", rep_row)
+        if event is not None and event.recurrence:
+            self.form.addRow(label("This is a repeating event: changes here apply to every occurrence. To change a "
+                                   "single day, skip it from the calendar and add a one-off event.", "caption", wrap=True))
+        self.remind = QComboBox()
+        for minutes, text in REMINDER_CHOICES:
+            self.remind.addItem(text, minutes)
+        self.remind.setCurrentIndex(max(0, self.remind.findData(event.remind_minutes if event else None)))
+        self.add_row("Reminder", self.remind)
         self.subject = IdCombo("No subject")
         self.subject.set_items(subject_items(ctx))
         self.subject.set_current_id(event.subject_id if event else None)
@@ -122,7 +158,13 @@ class EventDialog(FormDialog):
         end = self.end.value() if start and self.has_end.isChecked() else None
         data = dict(title=self.title_edit.text(), kind=self.kind.currentData(), date=self.day.value(),
                     start_time=start, end_time=end, subject_id=self.subject.current_id(),
-                    category=self.category.text(), description=self.desc.toPlainText())
+                    category=self.category.text(), description=self.desc.toPlainText(),
+                    location=self.location.text(), recurrence=self.repeat.currentData(),
+                    recur_until=self.until.value() if self.repeat.currentData() else None,
+                    remind_minutes=self.remind.currentData() if start else None,
+                    task_id=self.event.task_id if self.event else None)
+        if self.remind.currentData() is not None and not start:
+            raise ValidationError("Reminders need a start time. Untick “All day” or choose “No reminder”.")
         if start and end and end <= start:
             raise ValidationError("The end time must be after the start time. Events can't cross midnight.")
         conflicts = self.ctx.schedule.event_conflicts(self.day.value(), start, end, self.event.id if self.event else None)
@@ -134,7 +176,7 @@ class EventDialog(FormDialog):
             self.ctx.schedule.update_event(self.event.id, **data)
         else:
             self.ctx.schedule.create_event(**data)
-        bus.notify("schedule")
+        bus.notify("schedule", "reminders")
 
 
 class TimetableDialog(FormDialog):
@@ -349,10 +391,23 @@ class CalendarPage(Page):
         self.show_tasks.setChecked(bool(ctx.settings.get("calendar.show_tasks")))
         self.show_tasks.toggled.connect(self._toggle_tasks)
         bar.addWidget(self.show_tasks)
-        self.view = SegmentBar([("month", "Month"), ("week", "Week"), ("timetable", "Timetable")])
+        self.view = SegmentBar([("day", "Day"), ("week", "Week"), ("month", "Month"), ("timetable", "Timetable")],
+                               "month")
         self.view.changed.connect(lambda _: self.refresh())
         bar.addWidget(self.view)
         self.root.addLayout(bar)
+
+        self.conflict_banner = QFrame()
+        self.conflict_banner.setObjectName("Banner")
+        self.conflict_banner.setProperty("tone", "warning")
+        self.conflict_banner.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        cb = QHBoxLayout(self.conflict_banner)
+        cb.setContentsMargins(14, 8, 10, 8)
+        self.conflict_text = label("", "warning", wrap=True)
+        cb.addWidget(self.conflict_text, 1)
+        cb.addWidget(button("Review overlaps", "link", "chev-right", self._review_conflicts))
+        self.conflict_banner.hide()
+        self.root.addWidget(self.conflict_banner)
 
         self.views = QStackedLayout()
         holder = QWidget()
@@ -404,7 +459,31 @@ class CalendarPage(Page):
         self.tt_layout.setContentsMargins(0, 0, 0, 0)
         self.tt_layout.setSpacing(10)
         self.views.addWidget(scroll_wrap(self.tt_widget))
+
+        # day view: untimed items on top, then the hour timeline
+        day_box = QWidget()
+        dbl = QVBoxLayout(day_box)
+        dbl.setContentsMargins(0, 0, 8, 0)
+        dbl.setSpacing(10)
+        self.day_untimed = QVBoxLayout()
+        self.day_untimed.setSpacing(4)
+        dbl.addLayout(self.day_untimed)
+        self.timeline = DayTimeline()
+        self.timeline.item_clicked.connect(lambda item, pos: self._item_menu(item, None, pos))
+        self.timeline.slot_activated.connect(
+            lambda hhmm: EventDialog(self.ctx, self, day=self._day_anchor, start_time=hhmm).exec())
+        tl_card = QFrame()
+        tl_card.setProperty("card", True)
+        tll = QVBoxLayout(tl_card)
+        tll.setContentsMargins(10, 10, 14, 10)
+        tll.addWidget(self.timeline)
+        dbl.addWidget(tl_card)
+        dbl.addWidget(label("Double-click an empty slot to add an event at that time.", "caption"))
+        dbl.addStretch(1)
+        self.day_scroll = scroll_wrap(day_box)
+        self.views.addWidget(self.day_scroll)
         self._week_anchor = today()
+        self._day_anchor = today()
 
     def _toggle_tasks(self, on: bool) -> None:
         self.ctx.settings.set("calendar.show_tasks", on)
@@ -420,10 +499,13 @@ class CalendarPage(Page):
                 self.grid.selected_day = d
         elif view == "week":
             self._week_anchor += timedelta(days=7 * direction)
+        elif view == "day":
+            self._day_anchor += timedelta(days=direction)
         self.refresh()
 
     def _go_today(self) -> None:
         self._week_anchor = today()
+        self._day_anchor = today()
         self.grid.select(today())
         self.refresh()
 
@@ -439,13 +521,54 @@ class CalendarPage(Page):
             self.grid.update()
             self.period_label.setText(f"{MONTH_NAMES[self.grid.month - 1]} {self.grid.year}")
             self._fill_day(self.grid.selected_day)
+            self._update_conflicts(date(self.grid.year, self.grid.month, 1),
+                                   add_months(date(self.grid.year, self.grid.month, 1), 1) - timedelta(days=1))
         elif view == "week":
             self.views.setCurrentIndex(1)
             self._fill_week()
+            start = week_start(self._week_anchor, self.week_start)
+            self._update_conflicts(start, start + timedelta(days=6))
+        elif view == "day":
+            self.views.setCurrentIndex(3)
+            self._fill_day_view()
+            self._update_conflicts(self._day_anchor, self._day_anchor)
         else:
             self.views.setCurrentIndex(2)
             self.period_label.setText("Weekly timetable")
             self._fill_timetable()
+            self.conflict_banner.hide()
+
+    def _fill_day_view(self) -> None:
+        d = self._day_anchor
+        rel = relative_day(d)
+        self.period_label.setText(format_long_date(d, self.date_style)
+                                  + (f" · {rel}" if rel in ("Today", "Tomorrow", "Yesterday") else ""))
+        clear_layout(self.day_untimed)
+        items = self.ctx.schedule.day_agenda(d, self.show_tasks.isChecked())
+        untimed = [i for i in items if not i.start_time]
+        for item in untimed:
+            self.day_untimed.addWidget(self._item_widget(item))
+        if not items:
+            self.day_untimed.addWidget(label("Nothing scheduled — a free day.", "muted"))
+        from src.services.dates import now as _now
+
+        current = _now()
+        now_min = current.hour * 60 + current.minute if d == current.date() else None
+        self.timeline.set_items(items, self.clock24, now_min)
+
+    def _update_conflicts(self, start: date, end: date) -> None:
+        self._conflicts = self.ctx.schedule.conflicts_between(start, end)
+        n = len(self._conflicts)
+        if n:
+            days = len({c[0] for c in self._conflicts})
+            self.conflict_text.setText(
+                f"{n} overlapping time{'s' if n != 1 else ''} on {days} day{'s' if days != 1 else ''} in this view. "
+                "Nothing was moved; review them when you have a moment.")
+        self.conflict_banner.setVisible(bool(n))
+
+    def _review_conflicts(self) -> None:
+        dlg = ConflictsDialog(self, getattr(self, "_conflicts", []))
+        dlg.exec()
 
     def _item_widget(self, item: AgendaItem, with_actions: bool = True) -> QWidget:
         w = QWidget()
@@ -570,9 +693,15 @@ class CalendarPage(Page):
         self.tt_layout.addStretch(1)
 
     # -- item actions ---------------------------------------------------------------
-    def _item_menu(self, item: AgendaItem, anchor: QWidget) -> None:
+    def _item_menu(self, item: AgendaItem, anchor: QWidget | None, global_pos=None) -> None:
         menu = QMenu(self)
-        if item.kind in ("event", "deadline"):
+        if item.kind in ("event", "deadline") and item.recurring:
+            menu.addAction("Skip on this day", lambda: self._skip_event(item))
+            menu.addAction("Edit every occurrence…", lambda: self._edit_event(item.ref_id))
+            menu.addAction("End repeats after this day…", lambda: self._end_event_series(item))
+            menu.addSeparator()
+            menu.addAction("Delete whole series…", lambda: self._delete_event(item.ref_id))
+        elif item.kind in ("event", "deadline"):
             menu.addAction("Edit…", lambda: self._edit_event(item.ref_id))
             menu.addAction("Delete…", lambda: self._delete_event(item.ref_id))
         elif item.kind == "class":
@@ -588,7 +717,19 @@ class CalendarPage(Page):
             if task:
                 menu.addAction("Reopen" if task.done else "Mark complete", lambda: self._toggle_task(task.id, not task.done))
                 menu.addAction("Open in Tasks", lambda: self.main.navigate("tasks"))
-        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+        menu.exec(global_pos if global_pos is not None else anchor.mapToGlobal(anchor.rect().bottomLeft()))
+
+    def _skip_event(self, item: AgendaItem) -> None:
+        if guarded(self, lambda: self.ctx.schedule.skip_event_occurrence(item.ref_id, item.date)):
+            bus.notify("schedule")
+            self.toast(f"Skipped “{item.title}” on {format_date(item.date, self.date_style)}")
+
+    def _end_event_series(self, item: AgendaItem) -> None:
+        if confirm(self, "Stop repeating?",
+                   f"“{item.title}” will stop repeating after {format_date(item.date, self.date_style)}. "
+                   "Earlier occurrences stay on the calendar.", "End repeats", danger=False):
+            if guarded(self, lambda: self.ctx.schedule.end_event_series(item.ref_id, item.date)):
+                bus.notify("schedule")
 
     def _toggle_task(self, task_id: int, done: bool) -> None:
         if guarded(self, lambda: self.ctx.tasks.set_completed(task_id, done)):
@@ -601,7 +742,9 @@ class CalendarPage(Page):
 
     def _delete_event(self, event_id: int) -> None:
         event = self.ctx.schedule.get_event(event_id)
-        if event and confirm(self, "Delete entry?", f"“{event.title}” on {event.date} will be deleted."):
+        what = (f"“{event.title}” and every repeat of it will be deleted." if event and event.recurrence
+                else f"“{event.title}” on {event.date} will be deleted." if event else "")
+        if event and confirm(self, "Delete entry?", what):
             if guarded(self, lambda: self.ctx.schedule.delete_event(event_id)):
                 bus.notify("schedule")
                 self.toast("Entry deleted")
@@ -638,3 +781,47 @@ class CalendarPage(Page):
 
     def new_item(self) -> None:
         EventDialog(self.ctx, self, day=self.grid.selected_day).exec()
+
+
+class ConflictsDialog(FadeDialog):
+    """Lists overlapping items so the user can decide what to change (nothing moves automatically)."""
+
+    def __init__(self, page: "CalendarPage", conflicts: list) -> None:
+        super().__init__(page)
+        self.setWindowTitle("Overlapping times")
+        self.setMinimumWidth(560)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 18)
+        lay.setSpacing(10)
+        lay.addWidget(label("Overlapping times", "section"))
+        lay.addWidget(label("These items share time on the same day. Open one to change it, or keep both if "
+                            "that's intended.", "muted", wrap=True))
+        body = QWidget()
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        for day, a, b in conflicts:
+            box = QFrame()
+            box.setProperty("inset", True)
+            r = QVBoxLayout(box)
+            r.setContentsMargins(12, 8, 12, 8)
+            r.addWidget(label(format_date(day, page.date_style, with_weekday=True), "heading"))
+            for it in (a, b):
+                row = QHBoxLayout()
+                row.addWidget(label(f"{format_time(it.start_time, page.clock24)}–{format_time(it.end_time, page.clock24)}",
+                                    "muted"))
+                row.addWidget(label(it.title, "", wrap=True), 1)
+                row.addWidget(chip(KIND_NAMES[it.kind], KIND_TONES[it.kind]))
+                if it.kind in ("event", "deadline"):
+                    row.addWidget(button("Edit", "link", on_click=lambda i=it: (self.accept(), page._edit_event(i.ref_id))))
+                elif it.kind == "class":
+                    row.addWidget(button("Edit", "link", on_click=lambda i=it: (self.accept(), page._edit_entry(i.ref_id))))
+                r.addLayout(row)
+            bl.addWidget(box)
+        bl.addStretch(1)
+        area = scroll_wrap(body)
+        area.setMinimumHeight(min(420, 90 * max(1, len(conflicts)) + 20))
+        lay.addWidget(area, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button("Close", "primary", on_click=self.accept))
+        lay.addLayout(row)

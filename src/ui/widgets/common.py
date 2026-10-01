@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from shiboken6 import isValid
+
 from src.services.dates import ValidationError
 from src.ui import anim
 from src.ui.anim import tween
@@ -317,6 +319,8 @@ def fit_list_items(list_widget) -> None:
     """Size QListWidget rows to their (polished) item widgets, honouring word wrap."""
 
     def fit() -> None:
+        if not isValid(list_widget):
+            return
         width = max(80, list_widget.viewport().width() - 4)
         for i in range(list_widget.count()):
             item = list_widget.item(i)
@@ -1277,8 +1281,74 @@ def colored_dot(color: str, size: int = 8) -> QLabel:
 __all__ = [
     "AnimatedButton", "Card", "CollapsibleSection", "DateEdit", "EmptyState", "FadeDialog", "FormDialog",
     "IdCombo", "MessageDialog", "OptionalDate", "OptionalTime", "PageHeader", "QRect", "ResponsiveGrid",
-    "RoundCheck", "SearchField", "SegmentBar", "ThinProgress", "TimeEdit", "Toast", "blend", "button", "chip",
+    "FlowLayout", "RoundCheck", "SearchField", "SegmentBar", "ThinProgress", "TimeEdit", "Toast", "blend", "button",
+    "chip",
     "clear_layout", "colored_dot", "confirm", "fit_list_items", "from_qdate", "guarded", "hbox",
     "install_shortcut", "label", "mix", "paint_card", "repolish", "scroll_wrap", "separator", "show_error",
     "show_info", "to_qdate", "tool_button",
 ]
+
+
+class FlowLayout(QLayout):
+    """Lays widgets out left to right and wraps onto new lines (for button rows that must never
+    force a page wider than the window)."""
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._spacing = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item) -> None:  # noqa: N802
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):  # noqa: N802
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int):  # noqa: N802
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):  # noqa: N802
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._do_layout(QRect(0, 0, width, 0), test=True)
+
+    def setGeometry(self, rect: QRect) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._do_layout(rect, test=False)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _do_layout(self, rect: QRect, test: bool) -> int:
+        m = self.contentsMargins()
+        x, y = rect.x() + m.left(), rect.y() + m.top()
+        right = rect.right() - m.right()
+        line_h = 0
+        for item in self._items:
+            if item.widget() is not None and item.widget().isHidden():
+                continue
+            hint = item.sizeHint()
+            if x + hint.width() > right + 1 and line_h > 0:
+                x = rect.x() + m.left()
+                y += line_h + self._spacing
+                line_h = 0
+            if not test:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._spacing
+            line_h = max(line_h, hint.height())
+        return y + line_h - rect.y() + m.bottom()

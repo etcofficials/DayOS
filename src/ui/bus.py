@@ -10,7 +10,9 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Signal
 
 DOMAINS = (
-    "tasks", "notes", "habits", "goals", "journal", "schedule", "study", "exams", "subjects", "settings", "all",
+    "tasks", "notes", "habits", "goals", "journal", "schedule", "study", "exams", "subjects", "settings",
+    "projects", "inbox", "reminders", "links", "routines", "studyforge", "clips", "files", "money", "skills",
+    "briefing", "all",
 )
 
 

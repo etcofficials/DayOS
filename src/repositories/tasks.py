@@ -155,6 +155,15 @@ class TaskRepository(Repository):
         self.db.execute("UPDATE tasks SET next_task_id = ? WHERE id = ?", (new_id, task_id))
         return new_id
 
+    def undo_completion(self, task_id: int, spawned_id: int | None) -> None:
+        """Reopen a task and remove the repeat it spawned, if that one hasn't been touched."""
+        with self.db.transaction():
+            self.db.execute("UPDATE tasks SET completed_at = NULL WHERE id = ?", (task_id,))
+            if spawned_id:
+                self.db.execute("DELETE FROM tasks WHERE id = ? AND completed_at IS NULL", (spawned_id,))
+                self.db.execute("UPDATE tasks SET next_task_id = NULL WHERE id = ? AND next_task_id = ? AND NOT EXISTS "
+                                "(SELECT 1 FROM tasks WHERE id = ?)", (task_id, spawned_id, spawned_id))
+
     def add_minutes(self, task_id: int, minutes: int) -> None:
         """Add real time spent (e.g. from a linked focus session)."""
         if minutes <= 0:

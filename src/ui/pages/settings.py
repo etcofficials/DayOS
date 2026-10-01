@@ -15,15 +15,17 @@ from typing import Callable
 
 from PySide6 import __version__ as PYSIDE_VERSION
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
+    QKeySequenceEdit,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -51,6 +53,7 @@ from src.ui.widgets.common import (
     Card,
     PageHeader,
     SegmentBar,
+    TimeEdit,
     button,
     clear_layout,
     confirm,
@@ -92,7 +95,7 @@ class SettingsPage(Page):
         ("appearance", "Appearance", "sparkle"),
         ("profile", "Profile & layout", "grid"),
         ("general", "General", "settings"),
-        ("focus", "Focus & notifications", "clock"),
+        ("focus", "Focus, reminders & capture", "bell"),
         ("data", "Data & backups", "database"),
         ("shortcuts", "Keyboard shortcuts", "keyboard"),
         ("about", "About", "info"),
@@ -560,33 +563,136 @@ class SettingsPage(Page):
         form = form_layout(card.body)
         self.spins: dict[str, QSpinBox] = {}
         for key, text, hi in (("study.focus_minutes", "Focus length", 240), ("study.short_break", "Short break", 60),
-                              ("study.long_break", "Long break", 120)):
+                              ("study.long_break", "Long break", 120), ("focus.cycles", "Long break after", 8)):
             spin = QSpinBox()
-            spin.setRange(1, hi)
-            spin.setSuffix(" min")
+            spin.setRange(2 if key == "focus.cycles" else 1, hi)
+            spin.setSuffix(" focus sessions" if key == "focus.cycles" else " min")
             spin.valueChanged.connect(lambda v, k=key: self.set_pref(k, v))
             self.spins[key] = spin
             form.addRow(text, spin)
-        form.addRow("", label("DayOS never plays sounds. The taskbar button flashes briefly when a timer ends.",
+        self.break_reminder = QSpinBox()
+        self.break_reminder.setRange(0, 240)
+        self.break_reminder.setSingleStep(15)
+        self.break_reminder.setSpecialValueText("Off")
+        self.break_reminder.setSuffix(" min of continuous focus")
+        self.break_reminder.valueChanged.connect(lambda v: self.set_pref("focus.break_reminder", v))
+        form.addRow("Suggest a break after", self.break_reminder)
+        form.addRow("", label("DayOS never plays sounds and never blocks other apps. The taskbar button flashes "
+                              "briefly when a timer ends.", "caption", wrap=True))
+        lay.addWidget(card)
+
+        card = Card("Notifications & reminders", "bell")
+        form = form_layout(card.body)
+        self.notify = QCheckBox("Show Windows notifications (pop-ups) for reminders and timers")
+        self.notify.toggled.connect(lambda v: self.set_pref("notify_desktop", v))
+        form.addRow("", self.notify)
+        self.notify_checks: dict[str, QCheckBox] = {}
+        for key, text in (("notify.reminder", "Reminders you set"), ("notify.event", "Event reminders"),
+                          ("notify.habit", "Habit reminders"), ("notify.bill", "Bill and subscription renewals"),
+                          ("notify.bedtime", "A gentle bedtime reminder")):
+            cb = QCheckBox(text)
+            cb.toggled.connect(lambda v, k=key: self.set_pref(k, v))
+            self.notify_checks[key] = cb
+            form.addRow("", cb)
+        self.bedtime = TimeEdit(clock24=bool(self.ctx.settings.get("clock_24h")))
+        self.bedtime.timeChanged.connect(lambda _t: self.set_pref("bedtime.time", self.bedtime.value()))
+        form.addRow("Bedtime", self.bedtime)
+        quiet_row = QHBoxLayout()
+        self.quiet = QCheckBox("Quiet hours from")
+        self.quiet.toggled.connect(lambda v: self.set_pref("quiet.enabled", v))
+        self.quiet_start = TimeEdit(clock24=bool(self.ctx.settings.get("clock_24h")))
+        self.quiet_start.timeChanged.connect(lambda _t: self.set_pref("quiet.start", self.quiet_start.value()))
+        self.quiet_end = TimeEdit(clock24=bool(self.ctx.settings.get("clock_24h")))
+        self.quiet_end.timeChanged.connect(lambda _t: self.set_pref("quiet.end", self.quiet_end.value()))
+        quiet_row.addWidget(self.quiet)
+        quiet_row.addWidget(self.quiet_start)
+        quiet_row.addWidget(label("to", "muted"))
+        quiet_row.addWidget(self.quiet_end)
+        quiet_row.addStretch(1)
+        form.addRow("Quiet hours", quiet_row)
+        form.addRow("", label("During quiet hours nothing pops up; reminders wait in the notification centre "
+                              "(the bell at the bottom of the sidebar).", "caption", wrap=True))
+        lay.addWidget(card)
+
+        card = Card("Workload check", "clock")
+        form = form_layout(card.body)
+        self.work_hours = QDoubleSpinBox()
+        self.work_hours.setRange(0, 18)
+        self.work_hours.setSingleStep(0.5)
+        self.work_hours.setDecimals(1)
+        self.work_hours.setSpecialValueText("Not set")
+        self.work_hours.setSuffix(" h on weekdays")
+        self.work_hours.valueChanged.connect(lambda v: self.set_pref("workload.hours", float(v) if v else None))
+        form.addRow("Time I usually have", self.work_hours)
+        self.weekend_hours = QDoubleSpinBox()
+        self.weekend_hours.setRange(0, 18)
+        self.weekend_hours.setSingleStep(0.5)
+        self.weekend_hours.setDecimals(1)
+        self.weekend_hours.setSpecialValueText("Same as weekdays")
+        self.weekend_hours.setSuffix(" h at weekends")
+        self.weekend_hours.valueChanged.connect(lambda v: self.set_pref("workload.weekend_hours", float(v) if v else None))
+        form.addRow("", self.weekend_hours)
+        form.addRow("", label("Include classes and appointments. DayOS compares this with timed calendar items and "
+                              "your task estimates, and only suggests what could move; it never reschedules anything.",
                               "caption", wrap=True))
         lay.addWidget(card)
 
-        card = Card("Notifications", "info")
+        card = Card("Quick capture", "inbox")
         form = form_layout(card.body)
-        self.notify = QCheckBox("Show Windows notifications (timer finished, reminders)")
-        self.notify.toggled.connect(lambda v: self.set_pref("notify_desktop", v))
-        form.addRow("", self.notify)
+        self.capture_global = QCheckBox("Allow a system-wide shortcut for quick capture")
+        self.capture_global.toggled.connect(lambda v: self.set_pref("capture.global", v))
+        form.addRow("", self.capture_global)
+        self.capture_key = QKeySequenceEdit()
+        self.capture_key.setMaximumSequenceLength(1)
+        self.capture_key.editingFinished.connect(self._capture_key_changed)
+        form.addRow("Shortcut", self.capture_key)
+        self.capture_status = label("", "caption", wrap=True)
+        form.addRow("", self.capture_status)
+        form.addRow("", label("Inside DayOS, Ctrl+Shift+Space always opens quick capture. The system-wide "
+                              "shortcut only claims the exact keys you choose; DayOS never records other typing.",
+                              "caption", wrap=True))
         lay.addWidget(card)
-        self.notify_card_layout = card.body
 
         def load() -> None:
             s = self.ctx.settings
             for key, spin in self.spins.items():
                 spin.setValue(int(s.get(key)))
+            self.break_reminder.setValue(int(s.get("focus.break_reminder")))
             self.notify.setChecked(bool(s.get("notify_desktop")))
+            for key, cb in self.notify_checks.items():
+                cb.setChecked(bool(s.get(key)))
+            self.bedtime.set_value(s.get("bedtime.time"))
+            self.quiet.setChecked(bool(s.get("quiet.enabled")))
+            self.quiet_start.set_value(s.get("quiet.start"))
+            self.quiet_end.set_value(s.get("quiet.end"))
+            self.work_hours.setValue(float(s.get("workload.hours") or 0))
+            self.weekend_hours.setValue(float(s.get("workload.weekend_hours") or 0))
+            self.capture_global.setChecked(bool(s.get("capture.global")))
+            self.capture_key.setKeySequence(QKeySequence(str(s.get("capture.hotkey"))))
+            self._capture_status()
 
         self.on_refresh(load)
         return box
+
+    def _capture_key_changed(self) -> None:
+        text = self.capture_key.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+        if text:
+            self.set_pref("capture.hotkey", text)
+        QTimer.singleShot(50, self._capture_status)
+
+    def _capture_status(self) -> None:
+        hk = self.main.hotkeys
+        if not self.ctx.settings.get("capture.global"):
+            self.capture_status.setText("System-wide shortcut is off.")
+            self.capture_status.setProperty("role", "caption")
+        elif hk.is_registered("capture"):
+            self.capture_status.setText(f"Active: press {self.ctx.settings.get('capture.hotkey')} anywhere in Windows.")
+            self.capture_status.setProperty("role", "success")
+        else:
+            self.capture_status.setText(hk.errors.get("capture", "Not registered."))
+            self.capture_status.setProperty("role", "warning")
+        self.capture_status.style().unpolish(self.capture_status)
+        self.capture_status.style().polish(self.capture_status)
 
     # -- data & backups ----------------------------------------------------------------------
     def _build_data(self) -> QWidget:

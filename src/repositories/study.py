@@ -7,7 +7,10 @@ from src.models import StudySession, from_row
 from src.repositories.base import Repository, clean_text, optional_id
 from src.services.dates import ValidationError, iso, now, stamp
 
-_SELECT = "SELECT ss.*, s.name AS subject_name FROM study_sessions ss LEFT JOIN subjects s ON s.id = ss.subject_id"
+_SELECT = ("SELECT ss.*, s.name AS subject_name, t.title AS task_title, p.name AS project_name "
+           "FROM study_sessions ss LEFT JOIN subjects s ON s.id = ss.subject_id "
+           "LEFT JOIN tasks t ON t.id = ss.task_id LEFT JOIN projects p ON p.id = ss.project_id")
+KINDS = {"study": "Study", "practice": "Practice", "work": "Work", "reading": "Reading", "other": "Other"}
 
 MAX_SESSION_SECONDS = 16 * 3600
 
@@ -28,6 +31,9 @@ class StudyRepository(Repository):
         completed: bool = True,
         source: str = "timer",
         note: str = "",
+        task_id: int | None = None,
+        project_id: int | None = None,
+        kind: str = "study",
     ) -> bool:
         """Save a session. Returns False if this session was already saved.
 
@@ -41,14 +47,16 @@ class StudyRepository(Repository):
             raise ValidationError("A single study session can't be longer than 16 hours.")
         if source not in ("timer", "manual", "recovered"):
             raise ValidationError("Unknown session source.")
+        if kind not in KINDS:
+            raise ValidationError("Unknown session type.")
         ended_at = started_at + timedelta(seconds=actual_seconds)
         with self.db.transaction():
             cur = self.db.execute(
                 """
                 INSERT OR IGNORE INTO study_sessions
                     (session_uid, subject_id, date, started_at, ended_at, planned_minutes,
-                     actual_seconds, completed, source, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     actual_seconds, completed, source, note, task_id, project_id, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_uid,
@@ -61,9 +69,16 @@ class StudyRepository(Repository):
                     int(completed),
                     source,
                     clean_text(note, field="Note", max_len=500),
+                    optional_id(task_id),
+                    optional_id(project_id),
+                    kind,
                 ),
             )
-            return cur.rowcount == 1
+            saved = cur.rowcount == 1
+            if saved and task_id:
+                self.db.execute("UPDATE tasks SET actual_minutes = COALESCE(actual_minutes, 0) + ? WHERE id = ?",
+                                (actual_seconds // 60, task_id))
+            return saved
 
     def record_manual(self, subject_id: int | None, day: date, start_hhmm: str, minutes: int, note: str = "") -> bool:
         try:

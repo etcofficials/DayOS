@@ -5,7 +5,9 @@ from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
+    QLineEdit,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -17,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from src.services.dates import WEEKDAY_SHORT, format_date, format_duration, format_time, now, today, week_start
 from src.services.timer import FOCUS, LONG_BREAK, SHORT_BREAK, SLEEP_GAP_SECONDS, FocusTimer
-from src.repositories.study import new_session_uid
+from src.repositories.study import KINDS as SESSION_KINDS, new_session_uid
 from src.ui.bus import bus
 from src.ui.dialogs import ManualStudyDialog, subject_items
 from src.ui.pages.base import Page
@@ -85,8 +87,8 @@ class CloseDialog(QDialog):
 
 
 class StudyPage(Page):
-    domains = ("study", "subjects", "settings")
-    title = "Study"
+    domains = ("study", "subjects", "settings", "tasks", "projects")
+    title = "Focus"
     timer_changed = Signal()  # the dashboard's Study nook mirrors the one real timer
 
     def __init__(self, ctx, window) -> None:
@@ -101,8 +103,11 @@ class StudyPage(Page):
         outer = QVBoxLayout(content)
         outer.setContentsMargins(34, 28, 34, 28)
         outer.setSpacing(16)
-        header = PageHeader("Study nook", "A calm focus timer and an honest record of your study time.",
+        header = PageHeader("Focus", "A calm focus timer and an honest record of your time.",
                             eyebrow="Focus & study time")
+        self.focus_mode_btn = button("Focus mode", "ghost", "eye", self.toggle_focus_mode,
+                                     "Hide everything except the timer (Esc to leave)")
+        header.add_action(self.focus_mode_btn)
         header.add_action(button("Subjects", "ghost", "subject", lambda: SubjectsDialog(self.ctx, self).exec()))
         header.add_action(button("Log session", "", "plus", lambda: ManualStudyDialog(self.ctx, self, self.subject.current_id()).exec(),
                                  "Record a session you did without the timer"))
@@ -119,6 +124,15 @@ class StudyPage(Page):
                                style="accent")
         self.mode.changed.connect(self._mode_changed)
         self.timer_card.body.addWidget(self.mode, 0, Qt.AlignmentFlag.AlignHCenter)
+        presets = QHBoxLayout()
+        presets.addStretch(1)
+        presets.addWidget(label("Presets", "caption"))
+        for focus_m, break_m in ((25, 5), (50, 10), (90, 20)):
+            presets.addWidget(button(f"{focus_m}/{break_m}", "link", on_click=lambda f=focus_m, b=break_m: self.apply_preset(f, b)))
+        presets.addStretch(1)
+        self.presets_row = QWidget()
+        self.presets_row.setLayout(presets)
+        self.timer_card.body.addWidget(self.presets_row)
         ring_holder = QWidget()
         ring_holder.setMinimumHeight(250)
         grid = QGridLayout(ring_holder)
@@ -154,6 +168,30 @@ class StudyPage(Page):
         self.minutes.valueChanged.connect(self._duration_changed)
         form.addWidget(self.minutes)
         self.timer_card.body.addLayout(form)
+        link_row = QHBoxLayout()
+        link_row.setSpacing(8)
+        self.task_combo = IdCombo("Not linked to a task")
+        self.task_combo.setAccessibleName("Task this session is for")
+        self.task_combo.setToolTip("Time from this session is added to the task's 'time spent'.")
+        link_row.addWidget(self.task_combo, 2)
+        self.project_combo = IdCombo("No project")
+        self.project_combo.setAccessibleName("Project this session is for")
+        link_row.addWidget(self.project_combo, 1)
+        self.kind_combo = QComboBox()
+        for key, text in SESSION_KINDS.items():
+            self.kind_combo.addItem(text, key)
+        self.kind_combo.setAccessibleName("Type of session")
+        self.kind_combo.setToolTip("Study and reading count as learning; practice and work count as doing.")
+        link_row.addWidget(self.kind_combo)
+        link_row.setContentsMargins(0, 0, 0, 0)
+        self.link_box = QWidget()
+        self.link_box.setLayout(link_row)
+        self.timer_card.body.addWidget(self.link_box)
+        self.session_note = QLineEdit()
+        self.session_note.setPlaceholderText("Session note (optional): what you're working on")
+        self.session_note.setAccessibleName("Session note")
+        self.session_note.setMaxLength(500)
+        self.timer_card.body.addWidget(self.session_note)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -196,6 +234,9 @@ class StudyPage(Page):
         self._tick.setInterval(250)
         self._tick.timeout.connect(self._on_tick)
         install_shortcut(self, "Ctrl+Return", self._start_pause)
+        install_shortcut(self, "Escape", lambda: self.toggle_focus_mode(False))
+        self._focus_mode = False
+        self._break_hinted = False
         self._tray: QSystemTrayIcon | None = None
         self._apply_mode(FOCUS)
         self._update_controls()
@@ -204,6 +245,12 @@ class StudyPage(Page):
     def refresh(self) -> None:
         self.subject.set_items(subject_items(self.ctx))
         self.subject.setEnabled(not self.timer.is_active)
+        horizon = today() + timedelta(days=7)
+        open_tasks = [t for t in self.ctx.tasks.list("all", limit=400)
+                      if not t.done and (t.due is None or t.due <= horizon)][:80]
+        self.task_combo.set_items([(t.id, t.title[:70]) for t in open_tasks])
+        self.project_combo.set_items(self.ctx.projects.choices())
+        self.project_combo.setVisible(self.project_combo.count() > 1)
         ref = today()
         ws = week_start(ref, self.week_start)
         daily = self.ctx.study.daily_seconds(ws, ws + timedelta(days=6))
@@ -256,6 +303,12 @@ class StudyPage(Page):
             row.addWidget(label(format_time(started.time(), self.clock24), "muted"))
             row.addWidget(label(format_duration(s.actual_seconds)))
             row.addWidget(label(s.subject_name or "No subject", "muted"))
+            if s.kind and s.kind != "study":
+                row.addWidget(chip(SESSION_KINDS.get(s.kind, s.kind), "blue"))
+            if s.task_title:
+                row.addWidget(label(f"→ {s.task_title}", "caption"))
+            if s.project_name:
+                row.addWidget(chip(s.project_name, "accent"))
             if s.note:
                 row.addWidget(label(s.note, "caption"), 1)
             else:
@@ -322,6 +375,9 @@ class StudyPage(Page):
             mode = self.mode.current()
             uid = new_session_uid() if mode == FOCUS else None
             self.timer.start(self.minutes.value() * 60, mode, uid, self.subject.current_id())
+            self.timer.extra = {"task_id": self.task_combo.current_id(), "project_id": self.project_combo.current_id(),
+                                "kind": self.kind_combo.currentData(), "note": self.session_note.text().strip()}
+            self._break_hinted = False
             self._last_tick_clock = None
             self._tick.start()
             self._save_checkpoint()
@@ -371,13 +427,18 @@ class StudyPage(Page):
         if not t.session_uid or not t.started_wall:
             return False
         seconds = int(round(t.elapsed()))
+        extra = t.extra or {}
+        note = self.session_note.text().strip() or str(extra.get("note") or "")
         ok = guarded(self, lambda: self.ctx.study.record(
             session_uid=t.session_uid, subject_id=t.subject_id, started_at=t.started_wall,
             actual_seconds=seconds, planned_minutes=t.duration_s // 60, completed=completed, source=source,
+            note=note, task_id=extra.get("task_id"), project_id=extra.get("project_id"),
+            kind=extra.get("kind") or "study",
         ), "Couldn't save the study session")
         if ok:
             self._clear_checkpoint()
-            bus.notify("study")
+            self.session_note.clear()
+            bus.notify("study", "tasks", "projects")
         return ok
 
     # -- ticking ------------------------------------------------------------------
@@ -404,13 +465,21 @@ class StudyPage(Page):
             elapsed = self.timer.elapsed()
             if elapsed - self._last_checkpoint >= 30:
                 self._save_checkpoint()
+            limit = int(self.ctx.settings.get("focus.break_reminder")) * 60
+            if limit and elapsed >= limit and not self._break_hinted:
+                self._break_hinted = True
+                self.notice.setText(f"You've been focusing for {format_duration(elapsed)}. A short break helps — "
+                                    "the timer keeps going until you pause it.")
+                self.notice.show()
+                self.toast("Time for a short break?")
 
     def _on_finished(self) -> None:
         mode = self.timer.mode
         if mode == FOCUS:
             self._record(completed=True)
             self.focus_count += 1
-            nxt = LONG_BREAK if self.focus_count % 4 == 0 else SHORT_BREAK
+            cycles = int(self.ctx.settings.get("focus.cycles"))
+            nxt = LONG_BREAK if self.focus_count % cycles == 0 else SHORT_BREAK
             message = f"Focus session complete — {format_duration(self.timer.duration_s)} recorded. Time for a {MODE_LABELS[nxt].lower()}."
         else:
             nxt = FOCUS
@@ -470,7 +539,43 @@ class StudyPage(Page):
         self.finish_btn.setEnabled(active)
         self.subject.setEnabled(not active)
         self.minutes.setEnabled(not active)
+        self.link_box.setEnabled(not active)
+        self.presets_row.setEnabled(not active)
         self.timer_changed.emit()
+
+    def apply_preset(self, focus_minutes: int, break_minutes: int) -> None:
+        if self.timer.is_active:
+            return
+        self.ctx.settings.set("study.focus_minutes", focus_minutes)
+        self.ctx.settings.set("study.short_break", break_minutes)
+        self.ctx.settings.set("study.long_break", min(120, break_minutes * 3))
+        self._apply_mode(self.mode.current())
+        self.toast(f"Focus {focus_minutes} min, breaks {break_minutes} min")
+
+    def toggle_focus_mode(self, on: bool | None = None) -> None:
+        """Reduced-distraction layout: just the timer. Never blocks or changes other apps."""
+        on = (not self._focus_mode) if on is None else on
+        if on == self._focus_mode:
+            return
+        self._focus_mode = on
+        if on:
+            self._was_collapsed = self.main._collapsed
+            self.main.set_sidebar_collapsed(True)
+        elif not getattr(self, "_was_collapsed", False):
+            self.main.set_sidebar_collapsed(False)
+        for w in (self.stats_card, self.history_card):
+            w.setVisible(not on)
+        self.focus_mode_btn.setText("Leave focus mode" if on else "Focus mode")
+
+    def link_task(self, task_id: int) -> None:
+        """Pre-select a task for the next session (e.g. 'Focus on this' from a task)."""
+        if not self.timer.is_active:
+            self.refresh()
+            if self.task_combo.findData(task_id) < 0:
+                task = self.ctx.tasks.get(task_id)
+                if task:
+                    self.task_combo.addItem(task.title[:70], task.id)
+            self.task_combo.set_current_id(task_id)
 
     # -- public API used by the Today dashboard ------------------------------------
     def start_pause(self) -> None:
@@ -545,10 +650,15 @@ class StudyPage(Page):
                 f"{format_date(started.date(), self.date_style)} at {format_time(started.time(), self.clock24)} "
                 f"wasn't saved. {format_duration(elapsed)} were recorded before DayOS closed.")
         if confirm(self.main, "Save interrupted session?", text, "Save session", danger=False):
+            extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+            task_id = extra.get("task_id") if extra.get("task_id") and self.ctx.tasks.get(extra["task_id"]) else None
+            project_id = extra.get("project_id") if extra.get("project_id") and self.ctx.projects.get(extra["project_id"]) else None
             ok = guarded(self.main, lambda: self.ctx.study.record(
                 session_uid=uid, subject_id=subject.id if subject else None, started_at=started,
                 actual_seconds=int(elapsed), planned_minutes=duration // 60 or None,
-                completed=elapsed >= duration > 0, source="recovered"))
+                completed=elapsed >= duration > 0, source="recovered", task_id=task_id, project_id=project_id,
+                kind=extra.get("kind") if extra.get("kind") in SESSION_KINDS else "study",
+                note=str(extra.get("note") or "")[:500]))
             if ok:
                 bus.notify("study")
                 self.toast("Interrupted session saved")

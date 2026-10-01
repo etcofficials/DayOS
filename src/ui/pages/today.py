@@ -48,6 +48,7 @@ from src.modules.profiles import get_profile
 from src.ui.widgets.dashboard import DashboardColumns
 from src.ui.widgets.common import (
     AnimatedButton,
+    FlowLayout,
     Card,
     EmptyState,
     IdCombo,
@@ -160,7 +161,7 @@ class TodayHeader(QWidget):
         row = QHBoxLayout(self.buttons)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
-        self.theme_btn = round_button("sun", "Switch light / dark theme", page.toggle_theme)
+        self.theme_btn = round_button("sun", "Theme", lambda: page.theme_menu(self.theme_btn))
         self.avatar = round_button("", "Your settings", lambda: page.main.navigate("settings"), text="·")
         row.addWidget(self.theme_btn)
         row.addWidget(self.avatar)
@@ -464,18 +465,14 @@ class TodayPage(Page):
         outer.addWidget(self.header)
         self.intention = IntentionBanner(self)
 
-        quick = QHBoxLayout()
-        quick.setSpacing(4)
-        quick.addWidget(button("New task", "ghost", "plus", lambda: TaskDialog(ctx, self, default_due=today()).exec(),
-                               "Add a task due today (Ctrl+N)"))
-        quick.addWidget(button("Quick note", "ghost", "notes", self._quick_note, "Capture a note (Ctrl+Shift+N)"))
-        quick.addWidget(button("Log study", "ghost", "clock", lambda: ManualStudyDialog(ctx, self).exec(),
-                               "Record a study session you did without the timer"))
-        quick.addStretch(1)
+        self.quick_box = QWidget()
+        self.quick_row = FlowLayout(self.quick_box, spacing=4)
+        self.quick_box.setContentsMargins(0, 6, 0, 0)
+        self._quick_profile = None
         self.review_btn = button("End-of-day review", "ghost", "moon", self._review)
-        quick.addWidget(self.review_btn)
-        quick.setContentsMargins(0, 6, 0, 0)
-        self.header.layout().insertLayout(3, quick)
+        self.header.layout().insertWidget(3, self.quick_box)
+        self.welcome = self._welcome_banner()
+        outer.addWidget(self.welcome)
         outer.addWidget(self.intention)
 
         # row 1: plan + your day
@@ -527,10 +524,30 @@ class TodayPage(Page):
         self.board = DashboardColumns()
         outer.addWidget(self.board)
         outer.addStretch(1)
+        self.workload_card = Card("Workload check", "clock")
+        self.workload_body = QVBoxLayout()
+        self.workload_body.setSpacing(6)
+        self.workload_card.body.addLayout(self.workload_body)
+        self.inbox_card = Card("Capture inbox", "inbox")
+        self.inbox_card.add_action(button("Sort", "link", "chev-right", lambda: self.main.navigate("inbox")))
+        self.inbox_body = QVBoxLayout()
+        self.inbox_body.setSpacing(6)
+        self.inbox_card.body.addLayout(self.inbox_body)
+        self.revision_card = Card("Revision due", "book")
+        self.revision_body = QVBoxLayout()
+        self.revision_body.setSpacing(6)
+        self.revision_card.body.addLayout(self.revision_body)
+        self.review_card = Card("End of the day", "moon")
+        self.review_body = QVBoxLayout()
+        self.review_body.setSpacing(6)
+        self.review_card.body.addLayout(self.review_body)
         self.cards: dict[str, QWidget] = {
             "plan": self.plan_card, "day": self.day_card, "focus": self.nook,
-            "rituals": self.rituals_card, "coming": self.coming_card,
+            "rituals": self.rituals_card, "coming": self.coming_card, "workload": self.workload_card,
+            "inbox": self.inbox_card, "revision": self.revision_card, "review": self.review_card,
         }
+        # Feature modules add dashboard widgets here: key -> (card factory, fill callback).
+        self.extra_widgets: dict[str, tuple] = {}
         self._apply_widgets()
 
         self._clock_timer = QTimer(self)
@@ -584,12 +601,189 @@ class TodayPage(Page):
             chosen = list(get_profile(self.ctx.settings.get("profile")).widgets)
         return [k for k in chosen if k in self.cards]
 
+    def register_widget(self, key: str, card: QWidget, fill) -> None:
+        """Let a feature module add a dashboard widget (shown when chosen in Settings → Profile & layout)."""
+        self.cards[key] = card
+        self.extra_widgets[key] = (card, fill)
+        card.hide()
+
     def _apply_widgets(self) -> None:
         keys = self.widget_keys()
         for key, card in self.cards.items():
             if key not in keys:
                 card.hide()
         self.board.set_widgets([self.cards[k] for k in keys])
+
+    # -- header extras -----------------------------------------------------------------
+    def _welcome_banner(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("Banner")
+        frame.setProperty("tone", "info")
+        frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        lay = QHBoxLayout(frame)
+        lay.setContentsMargins(18, 12, 12, 12)
+        lay.setSpacing(12)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        col.addWidget(label("Welcome to DayOS 2", "heading"))
+        col.addWidget(label("Choose a profile and one of five themes to shape your sidebar and this dashboard. "
+                            "You can change both at any time.", "muted", wrap=True))
+        lay.addLayout(col, 1)
+        lay.addWidget(button("Personalise", "primary", "sparkle", self._personalise))
+        lay.addWidget(button("Not now", "ghost", on_click=self._dismiss_welcome))
+        frame.hide()
+        return frame
+
+    def _personalise(self) -> None:
+        self._dismiss_welcome()
+        self.main.navigate("settings")
+        self.main.page("settings").show_section("profile")
+
+    def _dismiss_welcome(self) -> None:
+        self.ctx.settings.set("onboarded", True)
+        self.welcome.hide()
+
+    def _fill_quick_actions(self) -> None:
+        profile = get_profile(self.ctx.settings.get("profile"))
+        if self._quick_profile == profile.id:
+            return
+        self._quick_profile = profile.id
+        while self.quick_row.count():
+            widget = self.quick_row.takeAt(0).widget()
+            if widget is not None and widget is not self.review_btn:
+                widget.deleteLater()
+        ctx = self.ctx
+        actions = {
+            "task": ("New task", "plus", lambda: TaskDialog(ctx, self, default_due=today()).exec(), "Add a task due today (Ctrl+N)"),
+            "note": ("Quick note", "notes", self._quick_note, "Capture a note (Ctrl+Shift+N)"),
+            "capture": ("Capture", "inbox", self.main.quick_capture, "Quick capture to your Inbox (Ctrl+Shift+Space)"),
+            "event": ("New event", "calendar", self._add_event, "Add an event for today"),
+            "focus": ("Log study", "clock", lambda: ManualStudyDialog(ctx, self).exec(),
+                      "Record a session you did without the timer"),
+            "test": ("Practice test", "exams", lambda: self.main.commands.run("studyforge.test") or self.main.navigate("exams"),
+                     "Create a practice test"),
+            "project": ("New project", "project", lambda: self.main.commands.run("project.new"), "Start a project"),
+            "expense": ("Add expense", "money", lambda: self.main.commands.run("money.expense") or self.main.navigate("money"),
+                        "Record an expense"),
+            "review": ("Weekly review", "goals", lambda: self.main.commands.run("review.weekly"), "Look back at the week"),
+        }
+        for key in profile.quick_actions:
+            if key in actions:
+                text, icon_name, fn, tip = actions[key]
+                self.quick_row.addWidget(button(text, "ghost", icon_name, fn, tip))
+        self.quick_row.addWidget(self.review_btn)
+
+    def theme_menu(self, anchor: QWidget) -> None:
+        from src.ui.themes import THEMES
+
+        menu = QMenu(self)
+        current = theme.id
+        for tid, t in THEMES.items():
+            act = menu.addAction(t.name, lambda tid=tid: (self.ctx.settings.set("theme", tid), bus.notify("settings")))
+            act.setCheckable(True)
+            act.setChecked(tid == current)
+        menu.addSeparator()
+        menu.addAction("Appearance settings…", lambda: (self.main.navigate("settings"),
+                                                        self.main.page("settings").show_section("appearance")))
+        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+
+    # -- extra widgets ----------------------------------------------------------------------
+    def _fill_workload(self, day: date) -> None:
+        from src.services.workload import day_workload
+
+        clear_layout(self.workload_body)
+        load = day_workload(self.ctx, day)
+        if load.available_minutes is None:
+            self.workload_body.addWidget(label(
+                "Tell DayOS how much time you usually have, and it will check whether today's plan fits.",
+                "muted", wrap=True))
+            self.workload_body.addWidget(button("Set my available hours", "soft", "clock", self._open_workload_settings))
+            if load.planned_minutes:
+                self.workload_body.addWidget(label(f"Planned today: {format_duration(load.planned_minutes * 60)}",
+                                                   "caption"))
+            return
+        planned, avail = load.planned_minutes, load.available_minutes
+        top = QHBoxLayout()
+        top.addWidget(label(f"{format_duration(planned * 60) if planned else '0 min'}", "metric"))
+        top.addWidget(label(f"of {format_duration(avail * 60)} available", "muted"), 1)
+        self.workload_body.addLayout(top)
+        bar = ThinProgress(min(1.0, planned / avail) if avail else 0, "danger" if load.over_by else "progress", 6)
+        self.workload_body.addWidget(bar)
+        parts = []
+        if load.scheduled_minutes:
+            parts.append(f"{format_duration(load.scheduled_minutes * 60)} scheduled")
+        if load.task_minutes:
+            parts.append(f"{format_duration(load.task_minutes * 60)} of task estimates")
+        if load.unestimated_tasks:
+            parts.append(f"{load.unestimated_tasks} task{'s' if load.unestimated_tasks != 1 else ''} without an estimate")
+        if parts:
+            self.workload_body.addWidget(label(" · ".join(parts), "caption", wrap=True))
+        if load.over_by:
+            self.workload_body.addWidget(label(
+                f"Today looks about {format_duration(load.over_by * 60)} fuller than your time. It's fine to move "
+                "something; these would free enough:", "warning", wrap=True))
+            for task in load.suggestions:
+                r = QHBoxLayout()
+                r.addWidget(label(f"{task.title} (~{format_duration((task.estimate_minutes or 0) * 60)})", "", wrap=True), 1)
+                r.addWidget(button("Move to tomorrow", "link", on_click=lambda t=task.id: self._move_tomorrow(t)))
+                self.workload_body.addLayout(r)
+        elif planned:
+            self.workload_body.addWidget(label("Today's plan fits the time you have.", "success"))
+
+    def _open_workload_settings(self) -> None:
+        self.main.navigate("settings")
+        self.main.page("settings").show_section("focus")
+
+    def _fill_inbox(self) -> None:
+        clear_layout(self.inbox_body)
+        items = self.ctx.inbox.open_items(4)
+        count = self.ctx.inbox.count_open()
+        self.main.set_badge("inbox", str(count) if count else "")
+        if not items:
+            self.inbox_body.addWidget(label("Nothing waiting. Press Ctrl+Shift+Space to capture a thought.", "muted",
+                                            wrap=True))
+            self.inbox_body.addWidget(button("Capture", "soft", "plus", self.main.quick_capture))
+            return
+        self.inbox_body.addWidget(label(f"{count} item{'s' if count != 1 else ''} to sort", "caption"))
+        for item in items[:3]:
+            self.inbox_body.addWidget(label("• " + item.text.splitlines()[0][:90], "", wrap=True))
+
+    def _fill_revision(self, day: date) -> None:
+        clear_layout(self.revision_body)
+        chapters = self.ctx.exams.revision_queue(day, limit=5)
+        provided = False
+        for provider in getattr(self.main, "revision_providers", []):
+            try:
+                provided = provider(self.revision_body, day) or provided
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).warning("Revision provider failed", exc_info=True)
+        if chapters:
+            self.revision_body.addWidget(label(f"{len(chapters)} chapter{'s' if len(chapters) != 1 else ''} from "
+                                               "your exams are due for revision", "caption"))
+            for ch in chapters[:4]:
+                self.revision_body.addWidget(label(f"• {ch.name}" + (f" · {ch.exam_title}" if getattr(ch, 'exam_title', '') else ""),
+                                                   "", wrap=True))
+            self.revision_body.addWidget(button("Revise now", "soft", "book", self._open_revision))
+        elif not provided:
+            self.revision_body.addWidget(label("Nothing is due for revision today.", "muted", wrap=True))
+
+    def _fill_review(self, day: date, entry) -> None:
+        clear_layout(self.review_body)
+        if entry.went_well or entry.reflection or entry.improve:
+            if entry.went_well:
+                self.review_body.addWidget(label(f"Went well: {entry.went_well}", "", wrap=True))
+            if entry.improve:
+                self.review_body.addWidget(label(f"Tomorrow: {entry.improve}", "muted", wrap=True))
+            self.review_body.addWidget(button("Edit today's review", "link", "edit", self._review))
+        else:
+            self.review_body.addWidget(label("A two-minute look back: what went well, and one thing for tomorrow.",
+                                             "muted", wrap=True))
+            self.review_body.addWidget(button("Write today's review", "soft", "moon", self._review))
+        if day.weekday() >= 4:
+            self.review_body.addWidget(button("Weekly review", "link", "goals",
+                                              lambda: self.main.commands.run("review.weekly")))
 
     # -- clock -------------------------------------------------------------------
     def _tick_clock(self) -> None:
@@ -633,10 +827,29 @@ class TodayPage(Page):
         entry = self.ctx.journal.get(day)
         self.intention.set_value(entry.intention)
         self.review_btn.setText("Edit today's review" if (entry.reflection or entry.went_well) else "End-of-day review")
+        self.welcome.setVisible(not self.ctx.settings.get("onboarded"))
+        self._fill_quick_actions()
+        visible = set(self.widget_keys())
         self._fill_plan(day)
         self._fill_day(day)
         self._fill_rituals(day)
         self._fill_coming(day)
+        if "workload" in visible:
+            self._fill_workload(day)
+        if "inbox" in visible:
+            self._fill_inbox()
+        if "revision" in visible:
+            self._fill_revision(day)
+        if "review" in visible:
+            self._fill_review(day, entry)
+        for key, (card, fill) in self.extra_widgets.items():
+            if key in visible:
+                try:
+                    fill(card, day)
+                except Exception:  # an optional widget must never break the dashboard
+                    import logging
+
+                    logging.getLogger(__name__).warning("Dashboard widget %s failed", key, exc_info=True)
         self.nook.reload_subjects()
         self.nook.sync()
         week = self.ctx.study.seconds_between(week_start(day, self.week_start), day)

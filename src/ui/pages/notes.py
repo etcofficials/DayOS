@@ -255,6 +255,18 @@ class NotesPage(Page):
         self._loading = False
         self._dirty_edit = False
 
+    def open_note(self, note_id: int) -> None:
+        """Show a specific note (used by search, links and the command palette)."""
+        note = self.ctx.notes.get(note_id)
+        if note is None:
+            return
+        self.search.blockSignals(True)
+        self.search.clear()
+        self.search.blockSignals(False)
+        self.tag_filter.setCurrentIndex(0)
+        self._open(note)
+        self._reload_list()
+
     def _update_meta(self) -> None:
         if not self.current:
             return

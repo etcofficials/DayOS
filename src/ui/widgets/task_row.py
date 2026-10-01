@@ -82,14 +82,30 @@ class TaskRow(QWidget):
             out.append(chip("High priority", "terracotta"))
         elif task.priority == 0 and not compact:
             out.append(chip("Low", ""))
+        if task.blocked_by and not task.done:
+            out.append(chip(f"Waiting on {task.blocked_by}", "amber"))
         if task.subject_name:
             out.append(chip(task.subject_name, "blue"))
+        if task.project_name:
+            out.append(chip(task.project_name, "accent"))
         if task.category and not compact:
             out.append(chip(task.category, ""))
+        if task.tags and not compact:
+            for tag in task.tag_list[:3]:
+                out.append(label(f"#{tag}", "caption"))
+        if task.recurrence:
+            from src.services.recurrence import describe
+
+            rep = label(f"↻ {describe(task.recurrence, task.recur_interval)}", "caption")
+            rep.setToolTip("Repeats: completing it creates the next one")
+            out.append(rep)
         if task.subtask_total:
             out.append(label(f"Checklist {task.subtask_done}/{task.subtask_total}", "caption"))
         if task.estimate_minutes and not compact:
-            out.append(label(f"~{format_duration(task.estimate_minutes * 60)}", "caption"))
+            spent = f" · {format_duration(task.actual_minutes * 60)} spent" if task.actual_minutes else ""
+            out.append(label(f"~{format_duration(task.estimate_minutes * 60)}{spent}", "caption"))
+        elif task.actual_minutes and not compact:
+            out.append(label(f"{format_duration(task.actual_minutes * 60)} spent", "caption"))
         if task.goal_title and not compact:
             out.append(label(f"Goal: {task.goal_title}", "caption"))
         return out

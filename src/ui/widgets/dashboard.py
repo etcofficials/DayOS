@@ -45,6 +45,34 @@ class DashboardColumns(QWidget):
         self._widgets = list(widgets)
         self.relayout(force=True)
 
+    # Qt's nested box layouts under-report height-for-width here (cards end up squeezed), so the
+    # widget answers the question itself: the tallest column at the given width.
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        count = self.column_count(width)
+        if count != self._count or not self._columns:
+            count = max(1, self._count)
+        col_width = max(120, (width - (count - 1) * self._spacing) // count)
+        best = 0
+        for col in self._columns:
+            total, n = 0, 0
+            for i in range(col.count()):
+                widget = col.itemAt(i).widget()
+                if widget is None or widget.isHidden():
+                    continue
+                h = widget.heightForWidth(col_width) if widget.hasHeightForWidth() else widget.sizeHint().height()
+                total += max(h, widget.minimumSizeHint().height())
+                n += 1
+            best = max(best, total + max(0, n - 1) * self._spacing)
+        return best
+
+    def minimumSizeHint(self):  # noqa: N802
+        hint = super().minimumSizeHint()
+        hint.setHeight(self.heightForWidth(max(self.width(), 400)))
+        return hint
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         if self.column_count() != self._count:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -42,6 +42,8 @@ from src.ui.widgets.common import (
     label,
     scroll_wrap,
     separator,
+    tool_button,
+    RoundCheck,
 )
 from src.ui.widgets.task_row import TaskRow, connect_row
 
@@ -213,6 +215,13 @@ class GoalsPage(Page):
         jl.addWidget(scroll_wrap(self.journal_holder), 1)
         self.tabs.addTab(journal_tab, "Journal")
 
+        # -- weekly review tab
+        from src.ui.pages.weekly_review import WeeklyReviewView
+
+        self.weekly = WeeklyReviewView(self)
+        self.tabs.addTab(scroll_wrap(self.weekly), "Weekly review")
+        self.tabs.currentChanged.connect(lambda i: self.weekly.refresh() if i == 2 else None)
+
     # -- goals list -------------------------------------------------------------
     def refresh(self) -> None:
         status = self.filter.current()
@@ -332,6 +341,34 @@ class GoalsPage(Page):
                 lay.addWidget(label("You've reached the target. Mark the goal completed when it feels done.", "success", wrap=True))
 
         lay.addWidget(separator())
+        milestones = self.ctx.milestones.list("goal", goal.id)
+        head = QHBoxLayout()
+        done_m = sum(1 for m in milestones if m.done)
+        head.addWidget(label(f"Milestones ({done_m}/{len(milestones)})" if milestones else "Milestones", "section"), 1)
+        lay.addLayout(head)
+        for m in milestones:
+            r = QHBoxLayout()
+            cb = RoundCheck(m.done, 18, f"Milestone reached: {m.title}")
+            cb.toggled.connect(lambda on, mid=m.id: self._milestone_done(mid, on))
+            r.addWidget(cb)
+            t = label(m.title, "rowtitle", wrap=True)
+            if m.done:
+                t.setProperty("strike", "true")
+            r.addWidget(t, 1)
+            if m.when:
+                r.addWidget(label(format_date(m.when, self.date_style), "caption"))
+            r.addWidget(tool_button("trash", f"Remove milestone {m.title}", lambda mid=m.id: self._milestone_delete(mid), 14))
+            lay.addLayout(r)
+        add_row = QHBoxLayout()
+        self.milestone_edit = QLineEdit()
+        self.milestone_edit.setPlaceholderText("Add a milestone and press Enter")
+        self.milestone_edit.setAccessibleName("New milestone")
+        self.milestone_date = OptionalDate("by")
+        self.milestone_edit.returnPressed.connect(lambda gid=goal.id: self._milestone_add(gid))
+        add_row.addWidget(self.milestone_edit, 1)
+        add_row.addWidget(self.milestone_date)
+        lay.addLayout(add_row)
+        lay.addWidget(separator())
         tasks = self.ctx.tasks.for_goal(goal.id)
         head = QHBoxLayout()
         head.addWidget(label(f"Linked tasks ({sum(1 for t in tasks if t.done)}/{len(tasks)} done)" if tasks else "Linked tasks", "section"), 1)
@@ -363,6 +400,19 @@ class GoalsPage(Page):
                                 "muted", wrap=True))
         lay.addStretch(1)
         self.detail_stack.setCurrentIndex(0)
+
+    def _milestone_add(self, goal_id: int) -> None:
+        text = self.milestone_edit.text().strip()
+        if text and guarded(self, lambda: self.ctx.milestones.add("goal", goal_id, text, self.milestone_date.value())):
+            bus.notify("goals")
+
+    def _milestone_done(self, milestone_id: int, done: bool) -> None:
+        if guarded(self, lambda: self.ctx.milestones.set_done("goal", milestone_id, done)):
+            QTimer.singleShot(240, lambda: bus.notify("goals"))
+
+    def _milestone_delete(self, milestone_id: int) -> None:
+        if guarded(self, lambda: self.ctx.milestones.delete("goal", milestone_id)):
+            bus.notify("goals")
 
     def _set_status(self, goal: Goal, status: str) -> None:
         if guarded(self, lambda: self.ctx.goals.set_status(goal.id, status)):
@@ -401,7 +451,7 @@ class GoalsPage(Page):
             head.addWidget(button("Edit", "link", on_click=lambda d=d: DailyReviewDialog(self.ctx, self, d).exec()))
             cl.addLayout(head)
             for caption, text in (("Intention", entry.intention), ("Went well", entry.went_well),
-                                  ("Reflection", entry.reflection)):
+                                  ("Tomorrow", entry.improve), ("Reflection", entry.reflection)):
                 if text:
                     cl.addWidget(label(caption, "caption"))
                     cl.addWidget(label(text, "", wrap=True, selectable=True))
@@ -410,6 +460,16 @@ class GoalsPage(Page):
 
     def _review(self) -> None:
         DailyReviewDialog(self.ctx, self).exec()
+
+    def open_goal(self, goal_id: int) -> None:
+        self.tabs.setCurrentIndex(0)
+        self.filter.set_current("all")
+        self.selected_id = goal_id
+        self.refresh()
+
+    def show_weekly_review(self) -> None:
+        self.tabs.setCurrentIndex(2)
+        self.weekly.refresh()
 
     def new_item(self) -> None:
         self.tabs.setCurrentIndex(0)

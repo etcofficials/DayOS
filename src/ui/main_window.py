@@ -128,6 +128,18 @@ class MainWindow(QMainWindow):
 
         self.toast = Toast(root, reduce_motion=self.motion_reduced)
         anim.set_motion_provider(lambda: not self.motion_reduced())
+        from src.ui.shell.commands import CommandRegistry, Openers
+        from src.ui.shell.hotkeys import GlobalHotkeys
+        from src.ui.shell.notifier import Notifier
+
+        self.commands = CommandRegistry()
+        self.openers = Openers()
+        self.notifier = Notifier(self)
+        self.notifier.changed.connect(self._update_bell)
+        self.hotkeys = GlobalHotkeys()
+        self.hotkeys.activated.connect(self._on_hotkey)
+        self._capture = None
+        self.revision_providers: list = []  # StudyForge adds "topics due" to the Today revision widget
         theme.about_to_change.connect(self._theme_crossfade)
         self.pages: LazyPages = LazyPages(self)
         self._build_nav()
@@ -139,6 +151,11 @@ class MainWindow(QMainWindow):
         self.set_sidebar_collapsed(bool(ctx.settings.get("sidebar_collapsed")), animate=False)
         self._schedule_midnight()
         ctx.settings.subscribe(self._on_setting)
+        from src.ui.shell.builtin import register_builtins
+
+        register_builtins(self)
+        self._register_hotkeys()
+        self.notifier.start()
         self.navigate("today")
 
     # -- sidebar -------------------------------------------------------------
@@ -195,6 +212,15 @@ class MainWindow(QMainWindow):
         bottom.setSpacing(4)
         settings_item = self._make_item(registry.SETTINGS, "Ctrl+,")
         bottom.addWidget(settings_item, 1)
+        self.bell_btn = QToolButton()
+        self.bell_btn.setObjectName("BellButton")
+        self.bell_btn.setToolTip("Notifications")
+        self.bell_btn.setAccessibleName("Notifications")
+        self.bell_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.bell_btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        bind_icon(self.bell_btn, "bell", "text2", 18)
+        self.bell_btn.clicked.connect(lambda: self.show_notifications(self.bell_btn))
+        bottom.addWidget(self.bell_btn)
         self.collapse_btn = QToolButton()
         self.collapse_btn.setObjectName("CollapseButton")
         self.collapse_btn.setToolTip("Collapse sidebar (Ctrl+B)")
@@ -297,6 +323,53 @@ class MainWindow(QMainWindow):
     def _on_setting(self, key: str, _value) -> None:
         if key in ("profile", "nav.modules"):
             self._build_nav()
+        elif key in ("capture.global", "capture.hotkey"):
+            self._register_hotkeys()
+
+    # -- shell: palette, capture, notifications, hotkeys -----------------------------
+    def _register_hotkeys(self) -> None:
+        self.hotkeys.unregister_all()
+        if self.ctx.settings.get("capture.global"):
+            self.hotkeys.register("capture", str(self.ctx.settings.get("capture.hotkey")))
+
+    def _on_hotkey(self, name: str) -> None:
+        if name == "capture":
+            self.quick_capture(standalone=not self.isActiveWindow())
+
+    def open_palette(self) -> None:
+        from src.ui.shell.palette import CommandPalette
+
+        CommandPalette(self).exec()
+
+    def quick_capture(self, standalone: bool = False) -> None:
+        from src.ui.shell.capture import CaptureWindow
+
+        if self._capture is not None and self._capture.isVisible():
+            self._capture.raise_()
+            self._capture.activateWindow()
+            return
+        self._capture = CaptureWindow(self, standalone=standalone or self.isMinimized() or not self.isVisible())
+        self._capture.finished.connect(lambda _r: setattr(self, "_capture", None))
+        self._capture.show()
+
+    def show_notifications(self, anchor=None) -> None:
+        from src.ui.shell.notifier import NotificationCenter
+
+        self.show_and_raise()
+        center = NotificationCenter(self)
+        center.popup(anchor or self.bell_btn)
+
+    def show_and_raise(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_bell(self, count: int) -> None:
+        bind_icon(self.bell_btn, "bell", "terracotta_text" if count else "text2", 18)
+        self.bell_btn.setToolTip(f"Notifications: {count} due" if count else "Notifications")
+        self.bell_btn.setAccessibleName(f"Notifications, {count} due" if count else "Notifications")
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
@@ -392,6 +465,8 @@ class MainWindow(QMainWindow):
         add("F1", self.show_shortcuts)
         add("Ctrl+Shift+T", self.quick_task)
         add("Ctrl+Shift+N", self.quick_note)
+        add("Ctrl+K", self.open_palette)
+        add("Ctrl+Shift+Space", self.quick_capture)
 
     def _goto_index(self, n: int) -> None:
         keys = [k for k in self.visible_keys if k != "settings"]
@@ -463,4 +538,6 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             log.warning("Could not save window geometry", exc_info=True)
+        self.hotkeys.unregister_all()
+        self.notifier.stop()
         event.accept()

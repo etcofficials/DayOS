@@ -8,6 +8,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QWidget
 
 from src.context import AppContext
+from src.services.dates import relative_day, today
 from src.ui.bus import bus
 from src.ui.dialogs import TaskDialog
 from src.ui.widgets.common import confirm, guarded
@@ -21,16 +22,27 @@ class TaskActions:
         self.toast = toast
 
     def toggle(self, task_id: int, done: bool) -> None:
+        spawned: list[int | None] = [None]
+
         def run() -> None:
-            self.ctx.tasks.set_completed(task_id, done)
+            spawned[0] = self.ctx.tasks.set_completed(task_id, done)
             # Let the check-mark animation finish before lists rebuild.
-            QTimer.singleShot(260, lambda: bus.notify("tasks", "goals"))
+            QTimer.singleShot(260, lambda: bus.notify("tasks", "goals", "projects"))
 
         if guarded(self.parent, run, "Couldn't update the task"):
             if done:
-                self.toast("Task completed", "Undo", lambda: self.toggle(task_id, False))
+                nxt = self.ctx.tasks.get(spawned[0]) if spawned[0] else None
+                text = f"Task completed · next one {relative_day(nxt.due, today()).lower()}" if nxt and nxt.due                     else "Task completed"
+                self.toast(text, "Undo", lambda: self.undo_complete(task_id, spawned[0]))
             else:
                 self.toast("Task reopened", None, None)
+
+    def undo_complete(self, task_id: int, spawned_id: int | None) -> None:
+        def run() -> None:
+            self.ctx.tasks.undo_completion(task_id, spawned_id)
+            bus.notify("tasks", "goals", "projects")
+
+        guarded(self.parent, run, "Couldn't undo")
 
     def edit(self, task_id: int) -> None:
         task = self.ctx.tasks.get(task_id)

@@ -122,4 +122,5 @@ class FocusTimer:
             "elapsed_s": round(self.elapsed(), 1),
             "started_wall": self.started_wall.replace(microsecond=0).isoformat() if self.started_wall else None,
             "saved_at": now().replace(microsecond=0).isoformat(),
+            "extra": dict(self.extra),
         }

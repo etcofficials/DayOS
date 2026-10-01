@@ -252,6 +252,11 @@ class StudySession:
     source: str = "timer"
     note: str = ""
     subject_name: str | None = None
+    task_id: int | None = None
+    project_id: int | None = None
+    kind: str = "study"
+    task_title: str | None = None
+    project_name: str | None = None
 
 
 @dataclass

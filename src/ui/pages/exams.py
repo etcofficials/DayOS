@@ -309,6 +309,23 @@ class ExamsPage(Page):
     def show_revision(self) -> None:
         self.tabs.setCurrentIndex(1)
 
+    def open_exam(self, exam_id: int) -> None:
+        self.tabs.setCurrentIndex(0)
+        if not self.show_past.isChecked():
+            exam = self.ctx.exams.get_exam(exam_id)
+            if exam is not None and exam.day < today():
+                self.show_past.setChecked(True)
+        self.refresh()
+        for i in range(self.exam_list.count()):
+            item = self.exam_list.item(i)
+            if int(item.data(Qt.ItemDataRole.UserRole)) == exam_id:
+                self.exam_list.setCurrentItem(item)
+                break
+        self._show_exam(exam_id)
+
+    def show_mistakes(self) -> None:
+        self.tabs.setCurrentIndex(2)
+
     # -- refresh ------------------------------------------------------------------
     def refresh(self) -> None:
         subjects = subject_items(self.ctx)
