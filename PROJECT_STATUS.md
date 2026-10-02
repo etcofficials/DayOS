@@ -4,7 +4,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 
 ## Current version
 
-* Current version: **2.0.0** ("DayOS v2"); release status is in the *Build and release* section below.
+* Current version: **2.0.0** ("DayOS v2"), released as GitHub release `v2.0.0` (commit `20d91a9`).
 * Previous release: **1.1.0** (GitHub release `v1.1.0`, commit `5ba1907`).
 * Safe checkpoint before v2 work: git tag `v1.1.0-checkpoint` and the verified backup
   `backups/dayos-backup-20261001-114000-manual.db` (development database, schema 1, no user records).
@@ -68,7 +68,7 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 6 | AudioDock | DONE (see below) |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | DONE (see below) |
 | 8 | Integration and hardening | DONE (see below) |
-| 9 | Windows build and GitHub release | see *Build and release* |
+| 9 | Windows build and GitHub release | DONE (released v2.0.0, see *Build and release*) |
 
 
 ## What exists now
@@ -250,7 +250,12 @@ This file is the hand-over document for resuming work. Update it at the end of e
     * The v1 task (completed), note and study session were preserved, and the theme preference (`system`) was kept.
   * **Start-up of the EXE on this PC:** about 4 s from launch until Python starts (the one-file EXE unpacks itself), then about 1.0–1.5 s to the main window.
   * **Package contents:** listed with `pyi-archive_viewer`. There are no databases, logs, backups or personal files, only code and `assets\`.
-* **Release:** pending at the time of writing this section; see the next commit.
+* **Release:** published and verified on 2026-10-02 as [DayOS 2.0.0 — Windows Desktop Release](https://github.com/etcofficials/DayOS/releases/tag/v2.0.0).
+  * Tag `v2.0.0` (annotated) points at commit `20d91a9`, which is on `origin/main`. It is not a draft or pre-release, and it is marked Latest.
+  * Asset `DayOS.exe`: 37,475,789 bytes, state *uploaded*.
+  * The asset was downloaded again with `gh release download`. Its SHA-256 matches the local build exactly.
+  * The page and the download link both return HTTP 200 without signing in.
+  * The downloaded copy itself passed `--smoke-test` (19 pages).
 
 ## Latest test results
 
