@@ -51,7 +51,9 @@ from src.ui.theme_settings import accent_for, apply_from_settings, set_accent
 from src.ui.themes import SYSTEM_PAIR, THEMES
 from src.ui.widgets.common import (
     Card,
+    FlowLayout,
     PageHeader,
+    ResponsiveGrid,
     SegmentBar,
     TimeEdit,
     button,
@@ -221,8 +223,7 @@ class SettingsPage(Page):
         card.body.addWidget(label("Five complete themes share one design system. Pick the one that feels right "
                                   "for the time of day; switching is instant and never touches your data.",
                                   "muted", wrap=True))
-        grid = QGridLayout()
-        grid.setSpacing(14)
+        grid = ResponsiveGrid((0, 0))  # three across when they fit, fewer in a narrow window
         self.theme_cards: dict[str, ThemePreviewCard] = {}
         self.theme_group = QButtonGroup(self)
         self.theme_group.setExclusive(True)
@@ -231,14 +232,13 @@ class SettingsPage(Page):
             c.clicked.connect(lambda _=False, tid=t.id: self._pick_theme(tid))
             self.theme_group.addButton(c)
             self.theme_cards[t.id] = c
-            grid.addWidget(c, i // 3, i % 3)
-        for col in range(3):
-            grid.setColumnStretch(col, 1)
-        card.body.addLayout(grid)
+            grid.add(c)
+        card.body.addWidget(grid)
         light_name, dark_name = (THEMES[k].name.replace("&", "&&") for k in SYSTEM_PAIR)
-        self.follow_windows = QCheckBox(f"Match Windows: use {light_name} in light mode and {dark_name} in dark mode")
+        self.follow_windows = QCheckBox("Match Windows light and dark mode")
         self.follow_windows.toggled.connect(self._toggle_follow)
         card.body.addWidget(self.follow_windows)
+        card.body.addWidget(label(f"Uses {light_name} in light mode and {dark_name} in dark mode.", "caption", wrap=True))
         lay.addWidget(card)
 
         card = Card("Accent & text", "edit")
@@ -718,7 +718,8 @@ class SettingsPage(Page):
         row.addWidget(button("Check database health", "ghost", "check", self._integrity))
         row.addStretch(1)
         body.addLayout(row)
-        auto_row = QHBoxLayout()
+        auto_box = QWidget()
+        auto_row = FlowLayout(auto_box, spacing=8)  # wraps in a narrow window
         auto_row.addWidget(label("Automatic backup", "muted"))
         self.auto_backup = QComboBox()
         self.auto_backup.setAccessibleName("Automatic backup")
@@ -733,8 +734,7 @@ class SettingsPage(Page):
         self.auto_keep.setAccessibleName("Automatic backups to keep")
         self.auto_keep.valueChanged.connect(lambda v: self.set_pref("backup.keep", int(v)))
         auto_row.addWidget(self.auto_keep)
-        auto_row.addStretch(1)
-        body.addLayout(auto_row)
+        body.addWidget(auto_box)
         body.addWidget(label("Only older automatic backups are removed, keeping the number you choose. Backups you "
                              "make yourself, and the safety copies DayOS takes before every upgrade, import and "
                              "restore, are never deleted automatically. Restoring first saves a copy of your current "

@@ -22,6 +22,7 @@ from src.ui.widgets.common import (
     Card,
     EmptyState,
     PageHeader,
+    FlowLayout,
     SearchField,
     SegmentBar,
     button,
@@ -73,12 +74,12 @@ class TasksPage(Page):
         )
         self.root.addWidget(self.quick)
 
-        bar = QHBoxLayout()
-        bar.setSpacing(10)
+        bar_box = QWidget()
+        bar = FlowLayout(bar_box, spacing=10)  # wraps search and sort below the filters in a narrow window
         self.filters = SegmentBar(FILTER_LABELS, "today")
         self.filters.changed.connect(lambda _: self.refresh())
         bar.addWidget(self.filters)
-        bar.addStretch(1)
+        bar.add_stretch()
         self.search = SearchField("Search tasks")
         self.search.textChanged.connect(lambda _: self.refresh())
         bar.addWidget(self.search)
@@ -89,7 +90,7 @@ class TasksPage(Page):
         self.sort.currentIndexChanged.connect(lambda _: self.refresh())
         self.sort.setAccessibleName("Sort tasks")
         bar.addWidget(self.sort)
-        self.root.addLayout(bar)
+        self.root.addWidget(bar_box)
         bar2 = QHBoxLayout()
         bar2.setSpacing(10)
         self.project_filter = QComboBox()

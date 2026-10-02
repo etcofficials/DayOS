@@ -10,6 +10,12 @@
 
 import os
 
+from PyInstaller.utils.hooks import collect_submodules
+
+# DayOS loads feature packages and pages by name at run time (src/modules/registry.py),
+# which static analysis can't see, so every module under src/ is bundled explicitly.
+SRC_MODULES = collect_submodules("src")
+
 a = Analysis(
     ["main.py"],
     pathex=[],
@@ -18,7 +24,7 @@ a = Analysis(
         ("assets/dayos.ico", "assets"),
         ("assets/art/*.svg", "assets/art"),
     ],
-    hiddenimports=["pypdf", "anthropic"],  # imported lazily (document importer, optional AI)
+    hiddenimports=["pypdf", "anthropic"] + SRC_MODULES,  # lazy imports (document importer, optional AI)
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "unittest", "pydoc", "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick",

@@ -52,7 +52,9 @@ from src.ui.pages.base import Page
 from src.ui.theme import mono
 from src.ui.widgets.common import (
     CollapsibleSection,
+    ElidedLabel,
     EmptyState,
+    FlowLayout,
     PageHeader,
     SearchField,
     button,
@@ -62,6 +64,7 @@ from src.ui.widgets.common import (
     guarded,
     install_shortcut,
     label,
+    min_width_floor,
     show_error,
     show_info,
     tool_button,
@@ -99,17 +102,15 @@ class NoteItem(QWidget):
         ic = label("", "caption")
         ic.setPixmap(icon(NOTE_KIND_ICONS.get(note.kind, "notes"), "text2", 14).pixmap(14, 14))
         top.addWidget(ic)
-        self.title = label(note.title or "Untitled")
+        self.title = ElidedLabel(note.title or "Untitled")
         self.title.setStyleSheet("font-weight: 600;")
-        self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         top.addWidget(self.title, 1)
         if note.pinned:
             top.addWidget(label("Pinned", "caption"))
         if note.archived:
             top.addWidget(label("Archived", "caption"))
         lay.addLayout(top)
-        self.snippet = label(_snippet(note) or "No content yet", "muted")
-        self.snippet.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.snippet = ElidedLabel(_snippet(note) or "No content yet", "muted")
         lay.addWidget(self.snippet)
         meta = format_date(date.fromisoformat(note.updated_at[:10]), date_style)
         if note.kind != "note":
@@ -118,8 +119,7 @@ class NoteItem(QWidget):
             meta += " · " + collection
         if note.tags:
             meta += " · " + note.tags
-        self.meta = label(meta, "caption")
-        self.meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.meta = ElidedLabel(meta, "caption")
         lay.addWidget(self.meta)
 
 
@@ -206,6 +206,10 @@ class BrainPage(Page):
         filters.addWidget(self.kind_filter, 1)
         self.coll_filter = QComboBox()
         self.coll_filter.setAccessibleName("Filter by collection")
+        # Filled after the first show, so it must keep measuring its items, and never be narrower than
+        # they are (Qt keeps a stale minimum for combos), or its text is cut off.
+        self.coll_filter.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.coll_filter.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.coll_filter.activated.connect(self._coll_filter_activated)
         filters.addWidget(self.coll_filter, 1)
         ll.addLayout(filters)
@@ -222,7 +226,7 @@ class BrainPage(Page):
         ll.addWidget(self.list, 1)
         self.count_label = label("", "caption")
         ll.addWidget(self.count_label)
-        left.setMinimumWidth(260)
+        min_width_floor(left, 260)
         split.addWidget(left)
 
         # -- editor pane
@@ -233,11 +237,12 @@ class BrainPage(Page):
         el = QVBoxLayout(editor)
         el.setContentsMargins(22, 14, 22, 12)
         el.setSpacing(6)
-        tools = QHBoxLayout()
-        tools.setSpacing(6)
+        tools_box = QWidget()
+        tools = FlowLayout(tools_box, spacing=6)  # wraps onto two lines in a narrow window
         self.status = label("", "caption")
         self.status.setAccessibleName("Save status")
-        tools.addWidget(self.status, 1)
+        tools.addWidget(self.status)
+        tools.add_stretch()
         self.kind_combo = QComboBox()
         self.kind_combo.setAccessibleName("Note type")
         for kind, name in NOTE_KINDS.items():
@@ -274,7 +279,7 @@ class BrainPage(Page):
         more.setMenu(self.more_menu)
         tools.addWidget(more)
         tools.addWidget(tool_button("trash", "Delete note", self._delete))
-        el.addLayout(tools)
+        el.addWidget(tools_box)
 
         self.title_edit = QLineEdit()
         self.title_edit.setProperty("flat", True)

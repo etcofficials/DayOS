@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from src.ui.main_window import MainWindow
 
 
+PAGE_MARGIN = 34
+PAGE_MARGIN_NARROW = 20
+NARROW_PAGE_WIDTH = 960
+
+
 class Page(QWidget):
     """Base for sidebar pages.
 
@@ -34,7 +39,7 @@ class Page(QWidget):
         self._pending.timeout.connect(self._run_refresh)
         bus.changed.connect(self._on_data_changed)
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(34, 28, 34, 24)
+        self.root.setContentsMargins(PAGE_MARGIN, 28, PAGE_MARGIN, 24)
         self.root.setSpacing(18)
 
     # -- refresh plumbing -------------------------------------------------
@@ -56,6 +61,15 @@ class Page(QWidget):
 
     def mark_dirty(self) -> None:
         self._dirty = True
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # Narrow windows get slimmer side margins, leaving more room for the content itself.
+        # Pages that set their own margins (0, edge to edge) keep them.
+        m = self.root.contentsMargins()
+        side = PAGE_MARGIN_NARROW if self.width() < NARROW_PAGE_WIDTH else PAGE_MARGIN
+        if m.left() in (PAGE_MARGIN, PAGE_MARGIN_NARROW) and m.left() != side:
+            self.root.setContentsMargins(side, m.top(), side, m.bottom())
 
     # -- hooks ------------------------------------------------------------
     def refresh(self) -> None:

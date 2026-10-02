@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 FONT_FAMILY = "Segoe UI"
 FONT_SERIF = "Georgia"
 FONT_SCALES = (0.9, 1.0, 1.1, 1.25)
+LIST_ITEM_PADDING = (8, 6)  # horizontal, vertical padding of list rows; fit_list_items() sizes rows with it
 
 # Kept for compatibility with v1 code and tests: the two original palettes.
 LIGHT: dict[str, str] = THEMES["paper"].palette()
@@ -417,7 +418,7 @@ QProgressBar::chunk {{ background: {t['progress']}; border-radius: 4px; }}
 /* ---------- lists & tables ---------- */
 QListWidget, QTreeWidget, QTableWidget, QListView, QTreeView, QTableView {{
     background: transparent; border: none; outline: none; alternate-background-color: {t['elevated']}; }}
-QListWidget::item, QTreeWidget::item {{ padding: 6px 8px; border-radius: {cr}px; }}
+QListWidget::item, QTreeWidget::item {{ padding: {LIST_ITEM_PADDING[1]}px {LIST_ITEM_PADDING[0]}px; border-radius: {cr}px; }}
 QTableWidget::item, QTableView::item {{ padding: 4px 8px; }}
 QListWidget::item:hover, QTreeWidget::item:hover, QTableWidget::item:hover {{ background: {t['hover']}; }}
 QListWidget::item:selected, QTreeWidget::item:selected, QTableWidget::item:selected, QTableView::item:selected {{

@@ -20,14 +20,14 @@ from src.ui import anim
 from src.ui.icons import pixmap
 from src.ui.shell.commands import Command
 from src.ui.theme import theme
-from src.ui.widgets.common import FadeDialog, label, paint_card
+from src.ui.widgets.common import FadeDialog, fit_list_items, label, paint_card
 
 
 class _Row(QWidget):
     def __init__(self, icon_name: str, title: str, detail: str, right: str) -> None:
         super().__init__()
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 6, 12, 6)
+        lay.setContentsMargins(10, 1, 12, 1)  # the list item's own padding adds the rest
         lay.setSpacing(12)
         ic = QLabel()
         ic.setPixmap(pixmap(icon_name, theme.tokens["text2"], 18))
@@ -159,6 +159,7 @@ class CommandPalette(FadeDialog):
                 self._add(cmd, cmd.icon, cmd.title, cmd.description, cmd.shortcut)
         if not commands and not hits:
             self._header("No results" if text.strip() else "")
+        fit_list_items(self.list)  # rows measured once styled, plus the item padding
         for i in range(self.list.count()):
             if self.list.item(i).flags() & Qt.ItemFlag.ItemIsSelectable:
                 self.list.setCurrentRow(i)

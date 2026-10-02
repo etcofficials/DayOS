@@ -39,6 +39,7 @@ from src.ui.widgets.common import (
     fit_list_items,
     guarded,
     label,
+    min_width_floor,
     repolish,
     tool_button,
 )
@@ -178,7 +179,7 @@ class ClipVaultPage(Page):
         ll.addWidget(self.list, 1)
         self.count_label = label("", "caption")
         ll.addWidget(self.count_label)
-        left.setMinimumWidth(300)
+        min_width_floor(left, 300)
         split.addWidget(left)
 
         right = QFrame()

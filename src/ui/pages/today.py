@@ -174,12 +174,14 @@ class TodayHeader(QWidget):
         self.art.setVisible(wide)
         self.quote.setVisible(w > 1180)
         art_w = min(380, int(w * 0.34))
-        self.art.setGeometry(w - art_w - 150 if w > 1180 else w - art_w, -26, art_w, self.height() + 26)
-        self.art.lower()
-        self.quote.move(w - 150, 44)
         self.buttons.adjustSize()
         self.buttons.move(w - self.buttons.width(), 0)
-        self.layout().setContentsMargins(0, 4, (art_w + 60) if wide else 110, 6)
+        # The vignette sits left of the quote (wide) or of the round buttons, never underneath them.
+        clear = 0 if w > 1180 else self.buttons.width() + 16
+        self.art.setGeometry(w - art_w - (150 if w > 1180 else clear), -26, art_w, self.height() + 26)
+        self.art.lower()
+        self.quote.move(w - 150, 44)
+        self.layout().setContentsMargins(0, 4, (art_w + 60 + clear) if wide else self.buttons.width() + 16, 6)
 
 
 class IntentionBanner(QFrame):

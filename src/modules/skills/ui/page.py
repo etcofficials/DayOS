@@ -38,6 +38,7 @@ from src.ui.widgets.common import (
     confirm,
     guarded,
     label,
+    min_width_floor,
     scroll_wrap,
     tool_button,
 )
@@ -112,7 +113,7 @@ class SkillsPage(Page):
         self.list.setAccessibleName("Skills")
         self.list.currentItemChanged.connect(self._on_select)
         ll.addWidget(self.list, 1)
-        left.setMinimumWidth(240)
+        min_width_floor(left, 240)
         self.split.addWidget(left)
         self.detail_holder = QWidget()
         self.detail = QVBoxLayout(self.detail_holder)

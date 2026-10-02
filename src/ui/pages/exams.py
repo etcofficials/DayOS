@@ -30,8 +30,8 @@ from src.ui.pages.base import Page
 from src.ui.subjects_dialog import SubjectsDialog
 from src.ui.widgets.charts import LineChart
 from src.ui.widgets.common import (
-    fit_list_items,
     DateEdit,
+    ElidedLabel,
     EmptyState,
     FormDialog,
     IdCombo,
@@ -42,8 +42,10 @@ from src.ui.widgets.common import (
     chip,
     clear_layout,
     confirm,
+    fit_list_items,
     guarded,
     label,
+    min_width_floor,
     scroll_wrap,
     separator,
     tool_button,
@@ -240,7 +242,7 @@ class ExamsPage(Page):
         self.exam_list.setAccessibleName("Exams")
         self.exam_list.currentItemChanged.connect(self._on_select)
         ll.addWidget(self.exam_list)
-        left.setMinimumWidth(260)
+        min_width_floor(left, 260)
         split.addWidget(left)
         right = QFrame()
         right.setProperty("panel", True)
@@ -358,7 +360,7 @@ class ExamsPage(Page):
             lay.setContentsMargins(8, 8, 8, 8)
             lay.setSpacing(3)
             top = QHBoxLayout()
-            t = label(exam.title)
+            t = ElidedLabel(exam.title)
             t.setStyleSheet("font-weight: 600;")
             top.addWidget(t, 1)
             past = exam.day < ref
@@ -367,7 +369,7 @@ class ExamsPage(Page):
             meta = [format_date(exam.day, self.date_style, with_weekday=True)]
             if exam.subject_name:
                 meta.insert(0, exam.subject_name)
-            lay.addWidget(label(" · ".join(meta), "caption"))
+            lay.addWidget(ElidedLabel(" · ".join(meta), "caption"))
             if exam.chapter_total:
                 lay.addWidget(ThinProgress(exam.chapter_ready / exam.chapter_total, "accent", 4))
             item.setSizeHint(w.sizeHint())

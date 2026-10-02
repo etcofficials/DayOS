@@ -3,7 +3,7 @@ plus an optional read-only GitHub panel for projects whose repository is on GitH
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
@@ -38,6 +38,7 @@ from src.ui.widgets.common import (
     confirm,
     guarded,
     label,
+    min_width_floor,
     scroll_wrap,
     tool_button,
 )
@@ -78,7 +79,7 @@ class ProjectsPage(Page):
         self.list.setAccessibleName("Projects")
         self.list.currentItemChanged.connect(self._on_select)
         ll.addWidget(self.list, 1)
-        left.setMinimumWidth(250)
+        min_width_floor(left, 250)
         split.addWidget(left)
         self.holder = QWidget()
         self.detail = QVBoxLayout(self.holder)

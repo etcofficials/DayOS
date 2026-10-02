@@ -12,9 +12,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QScrollArea,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -42,6 +44,7 @@ log = logging.getLogger(__name__)
 
 SIDEBAR_WIDE = 236
 SIDEBAR_NARROW = 74
+AUTO_COLLAPSE_BELOW = 1120  # window width under which the sidebar folds to icons to give pages room
 
 SHORTCUTS = [
     ("Ctrl+K", "Command palette: search everything and run any command"),
@@ -102,6 +105,20 @@ class LazyPages(dict):
         return page
 
 
+class PageFrame(QScrollArea):
+    """Holds one page in the stack. When the window is smaller than the page can lay itself out in,
+    the page scrolls instead of Qt squeezing its widgets on top of each other."""
+
+    def __init__(self, page: Page) -> None:
+        super().__init__()
+        self.setObjectName("PageFrame")
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWidgetResizable(True)
+        self.setWidget(page)
+        self.page = page
+        page.page_frame = self
+
+
 class MainWindow(QMainWindow):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__()
@@ -111,6 +128,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(980, 640))
         self._closing_confirmed = False
         self._collapsed = False
+        self._auto_collapsed = False  # folded only because the window is narrow (not the user's choice)
+        self._narrow = False
 
         root = QWidget()
         root.setObjectName("AppRoot")
@@ -239,7 +258,7 @@ class MainWindow(QMainWindow):
         self.collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.collapse_btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         bind_icon(self.collapse_btn, "sidebar", "text3", 18)
-        self.collapse_btn.clicked.connect(lambda: self.set_sidebar_collapsed(not self._collapsed))
+        self.collapse_btn.clicked.connect(self.toggle_sidebar)
         bottom.addWidget(self.collapse_btn)
         self.sidebar_bottom = bottom
         lay.addLayout(bottom)
@@ -289,7 +308,7 @@ class MainWindow(QMainWindow):
                 nav.add_item(item)
         nav.finish()
         nav.set_collapsed(self._collapsed)
-        current = self.stack.currentWidget() if hasattr(self, "stack") else None
+        current = self._current_page() if hasattr(self, "stack") else None
         if current is not None:
             key = self.current_key()
             if key in self.nav_buttons:
@@ -299,7 +318,14 @@ class MainWindow(QMainWindow):
                 self.sidebar.nav.select(None)
         QTimer.singleShot(0, self.sidebar.resync)
 
-    def set_sidebar_collapsed(self, collapsed: bool, animate: bool = True) -> None:
+    def toggle_sidebar(self) -> None:
+        self.set_sidebar_collapsed(not self._collapsed)
+
+    def set_sidebar_collapsed(self, collapsed: bool, animate: bool = True, remember: bool = True) -> None:
+        """``remember=False`` is used when the window folds the sidebar only because it is narrow,
+        which must not overwrite the preference the user chose."""
+        if remember:
+            self._auto_collapsed = False
         self._collapsed = collapsed
         self.sidebar.collapsed = collapsed
         for btn in self.nav_buttons.values():
@@ -324,8 +350,22 @@ class MainWindow(QMainWindow):
         else:
             step(target)
         QTimer.singleShot(0, self.sidebar.resync)
-        if self.ctx.settings.get("sidebar_collapsed") != collapsed:
+        if remember and self.ctx.settings.get("sidebar_collapsed") != collapsed:
             self.ctx.settings.set("sidebar_collapsed", collapsed)
+
+    def _fit_sidebar_to_width(self) -> None:
+        """Acts only when the width crosses the threshold, so expanding the sidebar by hand in a
+        narrow window sticks."""
+        narrow = self.width() < AUTO_COLLAPSE_BELOW
+        if narrow == self._narrow:
+            return
+        self._narrow = narrow
+        if narrow and not self._collapsed:
+            self.set_sidebar_collapsed(True, animate=False, remember=False)
+            self._auto_collapsed = True
+        elif not narrow and self._auto_collapsed:
+            self._auto_collapsed = False
+            self.set_sidebar_collapsed(False, animate=False, remember=False)
 
     def _theme_crossfade(self) -> None:
         if self.isVisible():
@@ -443,7 +483,7 @@ class MainWindow(QMainWindow):
         page = cls(self.ctx, self)
         page.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         dict.__setitem__(self.pages, key, page)
-        self.stack.addWidget(page)
+        self.stack.addWidget(PageFrame(page))
         log.debug("Created page %s", key)
         return page
 
@@ -452,7 +492,7 @@ class MainWindow(QMainWindow):
         return registry.all_keys()
 
     def current_key(self) -> str:
-        widget = self.stack.currentWidget()
+        widget = self._current_page()
         for key, page in self.pages.items():
             if page is widget:
                 return key
@@ -461,7 +501,7 @@ class MainWindow(QMainWindow):
     def navigate(self, key: str) -> None:
         if registry.get(key) is None:
             return
-        current = self.stack.currentWidget()
+        current = self._current_page()
         target = self.pages[key]
         if isinstance(current, Page) and current is not target and not current.can_leave():
             current_key = self.current_key()
@@ -471,7 +511,7 @@ class MainWindow(QMainWindow):
             return
         if current is not target and self.isVisible():
             anim.snapshot_fade(self.stack, anim.PAGE, drift=10)
-        self.stack.setCurrentWidget(target)
+        self.stack.setCurrentWidget(target.page_frame)
         item = self.nav_buttons.get(key)
         if item is not None:
             item.setChecked(True)
@@ -502,10 +542,10 @@ class MainWindow(QMainWindow):
         for i in range(9):
             add(f"Ctrl+{i + 1}", lambda n=i: self._goto_index(n))
         add("Ctrl+,", lambda: self.navigate("settings"))
-        add("Ctrl+N", lambda: self._current_page().new_item())
-        add("Ctrl+F", lambda: self._current_page().focus_search())
-        add("Ctrl+B", lambda: self.set_sidebar_collapsed(not self._collapsed))
-        add("F5", lambda: self._current_page().refresh())
+        add("Ctrl+N", lambda: self._on_current_page(Page.new_item))
+        add("Ctrl+F", lambda: self._on_current_page(Page.focus_search))
+        add("Ctrl+B", self.toggle_sidebar)
+        add("F5", lambda: self._on_current_page(Page.refresh))
         add("F1", self.show_shortcuts)
         add("Ctrl+Shift+T", self.quick_task)
         add("Ctrl+Shift+N", self.quick_note)
@@ -517,8 +557,17 @@ class MainWindow(QMainWindow):
         if n < len(keys):
             self.navigate(keys[n])
 
-    def _current_page(self) -> Page:
-        return self.stack.currentWidget()  # type: ignore[return-value]
+    def _current_page(self) -> Page | None:
+        frame = self.stack.currentWidget()
+        return frame.page if isinstance(frame, PageFrame) else None
+
+    def current_page(self) -> Page | None:
+        return self._current_page()
+
+    def _on_current_page(self, method) -> None:
+        page = self._current_page()
+        if page is not None:
+            getattr(page, method.__name__)()
 
     def show_shortcuts(self) -> None:
         text = "\n".join(f"{keys}  —  {desc}" for keys, desc in SHORTCUTS)
@@ -564,6 +613,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self._fit_sidebar_to_width()
         if self.toast.isVisible():
             self.toast._position()
 

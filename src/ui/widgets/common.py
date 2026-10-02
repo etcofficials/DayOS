@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpacerItem,
     QTimeEdit,
     QToolButton,
     QVBoxLayout,
@@ -38,10 +39,11 @@ from src.services.dates import ValidationError
 from src.ui import anim
 from src.ui.anim import tween
 from src.ui.icons import bind_icon
-from src.ui.theme import theme
+from src.ui.theme import LIST_ITEM_PADDING, theme
 
 log = logging.getLogger(__name__)
 QWIDGETSIZE_MAX = 16777215
+ITEM_PADDING = (2 * LIST_ITEM_PADDING[0], 2 * LIST_ITEM_PADDING[1])  # total horizontal, vertical
 
 
 # -- small helpers -----------------------------------------------------------
@@ -68,8 +70,30 @@ def chip(text: str, tone: str = "") -> QLabel:
     lbl.setProperty("role", "chip")
     if tone:
         lbl.setProperty("tone", tone)
-    lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # a squeezed chip cuts its text off
     return lbl
+
+
+class ElidedLabel(QLabel):
+    """A one-line label that ends in "…" when there isn't room, instead of being cut off mid-letter.
+    It never asks for more than a sliver of width, so long titles can't push their row wider."""
+
+    def __init__(self, text: str = "", role: str | None = None, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        if role:
+            self.setProperty("role", role)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(16, super().minimumSizeHint().height())
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        p = QPainter(self)
+        r = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, r.width())
+        self.style().drawItemText(p, r, int(self.alignment()), self.palette(), self.isEnabled(), text,
+                                  self.foregroundRole())
+        p.end()
 
 
 def blend(a: QColor, b: QColor, t: float) -> QColor:
@@ -322,6 +346,9 @@ def fit_list_items(list_widget) -> None:
         if not isValid(list_widget):
             return
         width = max(80, list_widget.viewport().width() - 4)
+        # The item widget sits inside the item's stylesheet padding (QListWidget::item in theme.py),
+        # so the row must be that much taller than the widget or its text gets cut off.
+        pad_w, pad_h = ITEM_PADDING
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             widget = list_widget.itemWidget(item)
@@ -333,16 +360,36 @@ def fit_list_items(list_widget) -> None:
             lay = widget.layout()
             if lay is not None:
                 lay.activate()
-            height = widget.heightForWidth(width) if widget.hasHeightForWidth() else -1
-            height = max(height, widget.sizeHint().height(), widget.minimumSizeHint().height()) + 2
+            inner = width - pad_w
+            height = widget.heightForWidth(inner) if widget.hasHeightForWidth() else -1
+            height = max(height, widget.sizeHint().height(), widget.minimumSizeHint().height()) + pad_h + 2
             item.setSizeHint(QSize(width, height))
 
     fit()
     QTimer.singleShot(0, fit)
 
 
+class _VerticalScroll(QScrollArea):
+    """Scrolls vertically only, so it must never be narrower than its content can be laid out in
+    (otherwise the right-hand side is cut off). Its minimum width follows the content's."""
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        hint = super().minimumSizeHint()
+        content = self.widget()
+        if content is None:
+            return hint
+        width = content.minimumSizeHint().width() + self.verticalScrollBar().sizeHint().width() + 2
+        return QSize(max(hint.width(), width), hint.height())
+
+
+def min_width_floor(widget: QWidget, width: int) -> None:
+    """Keep a laid-out panel at least ``width`` wide. Unlike setMinimumWidth this never lets a splitter or
+    a small window squeeze the panel's own contents below what they need."""
+    widget.layout().addItem(QSpacerItem(width, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
+
+
 def scroll_wrap(content: QWidget) -> QScrollArea:
-    area = QScrollArea()
+    area = _VerticalScroll()
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.Shape.NoFrame)
     area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -717,6 +764,7 @@ class SegmentBar(QFrame):
         for key, text in options:
             b = AnimatedButton(text, "segment")
             b.setCheckable(True)
+            b.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # never squeeze the labels
             b.clicked.connect(lambda _=False, k=key: self._on_click(k))
             b.toggled.connect(lambda on, btn=b: on and self._move_pill(btn))
             self._group.addButton(b)
@@ -858,7 +906,8 @@ class CollapsibleSection(QWidget):
 
 
 class ResponsiveGrid(QWidget):
-    """Lays out cards in 1–3 columns depending on the available width."""
+    """Lays out cards in 1–3 columns depending on the available width, never using more columns than
+    the cards' minimum widths fit side by side (so they are never squeezed on top of each other)."""
 
     def __init__(self, breakpoints: tuple[int, int] = (760, 1500), parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -874,13 +923,21 @@ class ResponsiveGrid(QWidget):
         self._items.append((widget, wide))
         self._relayout(force=True)
 
+    def _widest(self) -> int:
+        return max((max(w.minimumSizeHint().width(), w.minimumWidth()) for w, _ in self._items if not w.isHidden()),
+                   default=0)
+
     def _column_count(self) -> int:
         w = self.width()
-        if w < self._breakpoints[0]:
-            return 1
-        if w < self._breakpoints[1]:
-            return 2
-        return 3
+        cols = 1 if w < self._breakpoints[0] else 2 if w < self._breakpoints[1] else 3
+        gap = self._grid.horizontalSpacing()
+        while cols > 1 and cols * self._widest() + (cols - 1) * gap > w:
+            cols -= 1
+        return cols
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        # One column is always possible, so only the widest card sets the minimum width.
+        return QSize(self._widest(), super().minimumSizeHint().height())
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -1290,8 +1347,9 @@ __all__ = [
 
 
 class FlowLayout(QLayout):
-    """Lays widgets out left to right and wraps onto new lines (for button rows that must never
-    force a page wider than the window)."""
+    """Lays widgets out left to right and wraps onto new lines (for rows that must never force a page
+    wider than the window). ``add_stretch()`` pushes what follows to the right end of its line while
+    everything fits on one line; once the row wraps, the stretch is simply ignored."""
 
     def __init__(self, parent: QWidget | None = None, spacing: int = 6) -> None:
         super().__init__(parent)
@@ -1301,6 +1359,9 @@ class FlowLayout(QLayout):
 
     def addItem(self, item) -> None:  # noqa: N802
         self._items.append(item)
+
+    def add_stretch(self) -> None:
+        self.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
     def count(self) -> int:
         return len(self._items)
@@ -1329,26 +1390,52 @@ class FlowLayout(QLayout):
 
     def minimumSize(self) -> QSize:  # noqa: N802
         size = QSize()
-        for item in self._items:
+        for item in self._visible():
             size = size.expandedTo(item.minimumSize())
         m = self.contentsMargins()
         return size + QSize(m.left() + m.right(), m.top() + m.bottom())
 
+    def _visible(self) -> list:
+        return [i for i in self._items if i.widget() is None or not i.widget().isHidden()]
+
     def _do_layout(self, rect: QRect, test: bool) -> int:
         m = self.contentsMargins()
-        x, y = rect.x() + m.left(), rect.y() + m.top()
-        right = rect.right() - m.right()
-        line_h = 0
-        for item in self._items:
-            if item.widget() is not None and item.widget().isHidden():
+        left = rect.x() + m.left()
+        avail = max(1, rect.width() - m.left() - m.right())
+        lines: list[list] = [[]]
+        used = 0
+        for item in self._visible():
+            if item.spacerItem() is not None:
+                if lines[-1]:  # a stretch only matters between items on the same line
+                    lines[-1].append(item)
                 continue
-            hint = item.sizeHint()
-            if x + hint.width() > right + 1 and line_h > 0:
-                x = rect.x() + m.left()
-                y += line_h + self._spacing
-                line_h = 0
-            if not test:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x += hint.width() + self._spacing
-            line_h = max(line_h, hint.height())
-        return y + line_h - rect.y() + m.bottom()
+            width = min(item.sizeHint().width(), avail)
+            needed = width if not any(i.spacerItem() is None for i in lines[-1]) else used + self._spacing + width
+            if needed > avail and any(i.spacerItem() is None for i in lines[-1]):
+                lines.append([])
+                needed = width
+            lines[-1].append(item)
+            used = needed
+        y = rect.y() + m.top()
+        for line in lines:
+            widgets = [i for i in line if i.spacerItem() is None]
+            if not widgets:
+                continue
+            while line and line[-1].spacerItem() is not None:
+                line.pop()
+            stretches = sum(1 for i in line if i.spacerItem() is not None)
+            widths = [min(i.sizeHint().width(), avail) for i in widgets]
+            spare = avail - sum(widths) - self._spacing * (len(widgets) - 1)
+            line_h = max(i.sizeHint().height() for i in widgets)
+            x = left
+            for item in line:
+                if item.spacerItem() is not None:
+                    x += max(0, spare) // stretches
+                    continue
+                hint = item.sizeHint()
+                width = min(hint.width(), avail)
+                if not test:
+                    item.setGeometry(QRect(x, y + (line_h - hint.height()) // 2, width, hint.height()))
+                x += width + self._spacing
+            y += line_h + self._spacing
+        return max(0, y - self._spacing - rect.y()) + m.bottom()

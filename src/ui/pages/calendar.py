@@ -42,8 +42,8 @@ from src.ui.theme import KIND_COLORS, theme
 from src.ui.widgets.day_timeline import DayTimeline
 from src.ui.widgets.common import (
     DateEdit,
-    FadeDialog,
     EmptyState,
+    FadeDialog,
     FormDialog,
     IdCombo,
     OptionalDate,
@@ -56,6 +56,7 @@ from src.ui.widgets.common import (
     confirm,
     guarded,
     label,
+    min_width_floor,
     scroll_wrap,
     tool_button,
 )
@@ -440,7 +441,7 @@ class CalendarPage(Page):
         add_row.addWidget(button("Deadline", "", "plus", lambda: EventDialog(self.ctx, self, day=self.grid.selected_day, kind="deadline").exec()))
         add_row.addStretch(1)
         dl.addLayout(add_row)
-        day_panel.setMinimumWidth(360)
+        min_width_floor(day_panel, 360)
         month.addWidget(day_panel)
         month.setSizes([680, 380])
         month.setStretchFactor(0, 1)
@@ -584,7 +585,7 @@ class CalendarPage(Page):
         else:
             when = "All day" if item.kind != "task" else "Any time"
         t = label(when, "muted")
-        t.setFixedWidth(84 if self.clock24 else 118)
+        t.setMinimumWidth(84 if self.clock24 else 118)  # a column at normal text size; grows with larger text
         row.addWidget(t, 0, Qt.AlignmentFlag.AlignTop)
         col = QVBoxLayout()
         col.setSpacing(1)

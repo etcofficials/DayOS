@@ -27,23 +27,26 @@ from src.ui.dialogs import DailyReviewDialog, TaskDialog
 from src.ui.pages.base import Page
 from src.ui.task_actions import TaskActions
 from src.ui.widgets.common import (
-    fit_list_items,
+    ElidedLabel,
     EmptyState,
+    FlowLayout,
     FormDialog,
     OptionalDate,
     PageHeader,
+    RoundCheck,
     SegmentBar,
     ThinProgress,
     button,
     chip,
     clear_layout,
     confirm,
+    fit_list_items,
     guarded,
     label,
+    min_width_floor,
     scroll_wrap,
     separator,
     tool_button,
-    RoundCheck,
 )
 from src.ui.widgets.task_row import TaskRow, connect_row
 
@@ -181,7 +184,7 @@ class GoalsPage(Page):
         self.list.setAccessibleName("Goals")
         self.list.currentItemChanged.connect(self._on_select)
         ll.addWidget(self.list)
-        left.setMinimumWidth(260)
+        min_width_floor(left, 260)
         split.addWidget(left)
         right = QFrame()
         right.setProperty("panel", True)
@@ -265,7 +268,7 @@ class GoalsPage(Page):
         lay.setContentsMargins(8, 9, 8, 9)
         lay.setSpacing(6)
         top = QHBoxLayout()
-        title = label(goal.title)
+        title = ElidedLabel(goal.title)
         title.setStyleSheet("font-weight: 600;")
         top.addWidget(title, 1)
         if goal.status != "active":
@@ -281,7 +284,7 @@ class GoalsPage(Page):
         if goal.category:
             meta.append(goal.category)
         if meta:
-            lay.addWidget(label(" · ".join(meta), "caption"))
+            lay.addWidget(ElidedLabel(" · ".join(meta), "caption"))
         return w
 
     def _on_select(self, current, _prev) -> None:
@@ -314,7 +317,8 @@ class GoalsPage(Page):
         if goal.description:
             lay.addWidget(label(goal.description, "muted", wrap=True, selectable=True))
 
-        actions = QHBoxLayout()
+        actions_box = QWidget()
+        actions = FlowLayout(actions_box, spacing=6)  # wraps in a narrow window instead of squeezing
         if goal.status == "active":
             actions.addWidget(button("Update progress", "primary", "chart", lambda: ProgressDialog(self.ctx, goal, self).exec()))
             actions.addWidget(button("Pause", "ghost", on_click=lambda: self._set_status(goal, "paused")))
@@ -324,10 +328,10 @@ class GoalsPage(Page):
             actions.addWidget(button("Mark completed", "ghost", "check", lambda: self._set_status(goal, "completed")))
         else:
             actions.addWidget(button("Reopen", "", on_click=lambda: self._set_status(goal, "active")))
-        actions.addStretch(1)
+        actions.add_stretch()
         actions.addWidget(button("Edit", "ghost", "edit", lambda: GoalDialog(self.ctx, self, goal).exec()))
         actions.addWidget(button("Delete", "ghost", "trash", lambda: self._delete(goal)))
-        lay.addLayout(actions)
+        lay.addWidget(actions_box)
 
         if goal.fraction is not None:
             lay.addWidget(separator())

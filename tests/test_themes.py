@@ -204,7 +204,7 @@ class NavigationTests(TempHomeTestCase):
         self.ctx.settings.set("nav.modules", ["today", "tasks", "notes"])
         self.assertEqual(set(self.window.nav_buttons) - {"settings"}, {"today", "tasks", "notes"})
         self.window.navigate("habits")  # hidden modules stay reachable
-        self.assertIs(self.window.stack.currentWidget(), self.window.pages["habits"])
+        self.assertIs(self.window.current_page(), self.window.pages["habits"])
 
     def test_ctrl_number_follows_visible_order(self):
         self.window._goto_index(1)

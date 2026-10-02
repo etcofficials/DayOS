@@ -4,8 +4,8 @@ This file is the hand-over document for resuming work. Update it at the end of e
 
 ## Current version
 
-* Released: **1.1.0** (GitHub release `v1.1.0`, commit `5ba1907`)
-* In development: **2.0.0** ("DayOS v2")
+* Current version: **2.0.0** ("DayOS v2"); release status is in the *Build and release* section below.
+* Previous release: **1.1.0** (GitHub release `v1.1.0`, commit `5ba1907`).
 * Safe checkpoint before v2 work: git tag `v1.1.0-checkpoint` and the verified backup
   `backups/dayos-backup-20261001-114000-manual.db` (development database, schema 1, no user records).
 
@@ -68,16 +68,15 @@ This file is the hand-over document for resuming work. Update it at the end of e
 | 6 | AudioDock | DONE (see below) |
 | 7 | Weather, news, skills, projects, money, profiles, GitHub, AI | DONE (see below) |
 | 8 | Integration and hardening | DONE (see below) |
-| 9 | Windows build and GitHub release | NOT STARTED |
+| 9 | Windows build and GitHub release | see *Build and release* |
 
-Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
 
 ## What exists now
 
-* **Schema version 4.** Each migration only adds tables or columns:
+* **Schema version 8.** Each migration only adds tables or columns (the full table is in `docs/ARCHITECTURE.md`):
   * Migration 2 maps the theme setting (light→paper, dark→midnight).
   * Migration 3 adds the planning tables and the FTS5 `search_index`.
-  * Migration 4 adds the StudyForge `sf_*` tables and extra columns on `mistakes` and `study_sessions`.
+  * Migration 4 adds StudyForge; 5 SecondBrain and ClipVault; 6 FilePilot; 7 AudioDock; 8 news read state, money and skills.
 * **Phase 1**
   * Theme registry: `src/ui/themes.py`, with contrast tests in `tests/test_themes.py`.
   * Font scale and accent options.
@@ -219,13 +218,57 @@ Nothing from v2 has been pushed to GitHub yet. Commits are local on `main`.
     * 18 pages each first visited in at most 0.45 s;
     * 140 MB working set after visiting every page.
 * Main window: `add_global_hotkey()` lets features claim shortcuts; `shutdown_hooks` run on close.
+* **Layout fixes (overlapping widgets, reported 2026-10-02).**
+  * Cause: the window may be made as small as 980×640, but several pages needed more room than that. Qt then squeezes widgets below their minimum size and they overlap: filter tabs (Tasks, ClipVault), SecondBrain's toolbar combos, ClipVault's privacy text, FilePilot's options, and the Exams detail pane was cut off.
+  * Every page now sits in a `PageFrame` (a scroll area): a page that doesn't fit scrolls instead of being squeezed.
+  * Below 1120 px wide the sidebar folds to icons automatically, without changing the saved preference. Expanding it by hand sticks. Focus mode's fold is also temporary now.
+  * Page side margins shrink from 34 to 20 px when a page is narrower than 960 px.
+  * Wide rows wrap (`FlowLayout` with `add_stretch()`): Tasks filters, SecondBrain editor toolbar, goal actions, automatic-backup settings.
+  * `ResponsiveGrid` never uses more columns than its cards fit in. The Study page cards and the Settings theme cards use it.
+  * Segment buttons and chips never shrink below their text. Splitter panels use `min_width_floor()` instead of `setMinimumWidth()`, which had let their contents be squeezed.
+  * Every list row includes the stylesheet's item padding (`LIST_ITEM_PADDING`). Exams, Goals, SecondBrain, ClipVault and the command palette had text cut off at the bottom.
+  * Long one-line titles end in "…" (`ElidedLabel`) instead of being cut mid-letter.
+  * The Today header's illustration no longer sits under the theme and settings buttons.
+  * The CBSE setup dialog's date fields were squashed to 7 px: a nested grid layout in a form row kept stale heights. Fixed by putting the grid in its own widget.
+  * Checked every page, every tab, every Settings section and 24 dialogs at 980×640, 1100×700 (text 1.25×), 1260×820 (text 1.0× and 1.25×), 1360×860 and 1920×1040. No overlaps or clipped text remain. At the smallest sizes some pages scroll vertically.
+  * `tests/test_layout.py` repeats the page checks at 980×640 and at 1260×820 with 1.25× text. Tests now measure text with the Windows fonts (`tests/__init__.py`), like the real app.
 * **Tests:** see Latest test results below.
+
+## Build and release
+
+* **Build:** `dist\DayOS.exe` was built with `build.ps1` (PyInstaller 6.22.3, one file, windowed).
+  * Rebuilt after the layout fixes: 37,475,789 bytes (35.7 MB), PE machine 0x8664 (x64), GUI subsystem.
+  * SHA-256 `06baaa035ff5af1130b163bf9a7e56c03a1e8afec02fca6bb2dc80e80c45225f`.
+  * The first rebuild attempt stopped inside PyInstaller with Windows error 0xC0000006, an in-page I/O error reading a file. The retry built cleanly. Like the incident note below, this points at drive G: rather than the code.
+* **Bug found by testing the real EXE:** the first v2 build couldn't start. Pages and feature packages are imported by name at run time, so PyInstaller missed them. `dayos.spec` now bundles `collect_submodules("src")`, and `tests/test_hardening.py` guards it.
+* **Verified with the actual EXE** (throwaway folders under `release\`, git-ignored):
+  * `--self-test write`: exit code 0. It visited all pages, cycled all five themes, imported the bundled pypdf, QtSvg and anthropic, created and completed a task through the dashboard, saved a note through the editor, logged a study session, ran the focus timer, wrote StudyForge, SecondBrain, ClipVault, money and skills records, and ran a FilePilot scan that found the duplicate.
+  * `--self-test verify` after a restart: exit code 0. All of the above persisted, schema is 8, integrity ok. No ERROR lines in the log.
+  * The self-test and the upgrade check were both repeated with the rebuilt EXE, in fresh folders (`release\v2check2`, `release\v1upgrade2`), and passed.
+  * **v1 → v2 upgrade:** a copy of the database written by the v1.1.0 EXE's own self-test was opened with the v2 EXE (`--smoke-test`, exit 0, 19 pages).
+    * It wrote `pre-upgrade-v1-to-v8` first, then upgraded to schema 8 with integrity ok.
+    * The v1 task (completed), note and study session were preserved, and the theme preference (`system`) was kept.
+  * **Start-up of the EXE on this PC:** about 4 s from launch until Python starts (the one-file EXE unpacks itself), then about 1.0–1.5 s to the main window.
+  * **Package contents:** listed with `pyi-archive_viewer`. There are no databases, logs, backups or personal files, only code and `assets\`.
+* **Release:** pending at the time of writing this section; see the next commit.
+
+## Latest test results
+
+* 245 automated tests, all passing (`python -m unittest discover -s tests -t .`, offscreen).
+* Built-in self-test passes from source and from the built EXE (write and verify).
+
+## Known issues and unverified items
+
+* AI: no real API call has been made (no key on this machine); the provider is tested with stand-ins.
+* AudioDock: the microphone meter and test recording were not run against real hardware (no recording without the user's action). Default-device switching was verified only by setting the current default to itself.
+* Windows toast notifications and *Open at sign-in* have not been exercised end-to-end.
+* The EXE isn't code-signed.
+* Tested on Windows 10 Pro x64 at one display scale.
 
 ## Next concrete tasks
 
-1. Phase 9:
-   * Build and verify `dist/DayOS.exe`. `pypdf` is already in `requirements.txt` and in `hiddenimports`.
-   * Push, publish the v2.0.0 release and verify the asset.
+1. After release: watch for feedback on start-up time (single-file unpacking takes about 4 s); a one-folder build would start faster if that matters.
+2. Exercise the AI features with a real key, and AudioDock's microphone check on real hardware, with the user present.
 
 ## Incident note (2026-10-01)
 

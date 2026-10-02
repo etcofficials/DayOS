@@ -93,3 +93,18 @@ SecondBrain and opt-in ClipVault; FilePilot; AudioDock; weather, news, money, sk
 projects and optional AI; automatic backups, documentation and a v2 self-test. Database
 schema 1 → 8 through append-only migrations with a verified pre-upgrade backup.
 See PROJECT_STATUS.md for details and verification notes.
+
+### 2.0.0 — layout fixes before release (2026-10-02)
+
+Fixed widgets overlapping in small windows. The window allows 980×640, but several pages needed more room than that, so Qt squeezed widgets below their minimum size. Changes:
+
+* Every page now sits in a scroll frame.
+* The sidebar folds to icons below 1120 px wide.
+* Wide rows wrap.
+* Grids drop columns when their cards don't fit.
+* List rows count the stylesheet padding.
+* Long titles end in "…".
+* The Today illustration no longer sits under its buttons.
+* The CBSE dialog's date fields are no longer squashed.
+
+Checked every page, tab, Settings section and 24 dialogs at six window sizes and two text sizes. `tests/test_layout.py` keeps those checks.

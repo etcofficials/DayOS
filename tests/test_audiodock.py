@@ -263,7 +263,7 @@ class AudioDockUiTests(TempHomeTestCase):
         self.assertTrue(page.error_view.isVisibleTo(page))
         self.assertIn("not available", page.error_reason.text())
         self.window.navigate("today")
-        self.assertIs(self.window.stack.currentWidget(), self.window.page("today"))
+        self.assertIs(self.window.current_page(), self.window.page("today"))
 
     def test_meter_stops_when_leaving_the_page(self):
         fake = FakeAudio()

@@ -70,6 +70,26 @@ class RealDatabaseCopyMigration(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class BuildSpec(unittest.TestCase):
+    def test_spec_bundles_modules_loaded_by_name(self):
+        """Pages and feature packages are imported by name at run time, which PyInstaller can't see;
+        the v2 build once started without them. The spec must bundle every src module."""
+        spec = (ROOT / "dayos.spec").read_text(encoding="utf-8")
+        self.assertIn('collect_submodules("src")', spec)
+        self.assertIn("SRC_MODULES", spec.split("hiddenimports=")[1].split("\n")[0])
+        from src.modules import FEATURES, registry
+
+        load = __import__("src.modules", fromlist=["load_features"]).load_features
+        load()
+        names = {spec_.factory.split(":")[0] for spec_ in registry.MODULES} | set(FEATURES)
+        try:
+            from PyInstaller.utils.hooks import collect_submodules
+        except ImportError:
+            self.skipTest("PyInstaller isn't installed (requirements-build.txt)")
+        bundled = set(collect_submodules("src"))
+        self.assertEqual(sorted(names - bundled), [])
+
+
 class RepositoryHygiene(unittest.TestCase):
     def test_no_private_data_or_secrets_are_tracked(self):
         files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split("\n")

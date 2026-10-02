@@ -39,7 +39,7 @@ class UiSmokeTests(TempHomeTestCase):
             for key in self.window.page_keys():
                 self.window.navigate(key)
                 app.processEvents()
-                self.assertIs(self.window.stack.currentWidget(), self.window.pages[key])
+                self.assertIs(self.window.current_page(), self.window.pages[key])
                 if key in self.window.nav_buttons:
                     self.assertTrue(self.window.nav_buttons[key].isChecked())
 

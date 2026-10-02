@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QLineEdit,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QSpinBox,
@@ -30,6 +29,7 @@ from src.ui.widgets.common import (
     EmptyState,
     IdCombo,
     PageHeader,
+    ResponsiveGrid,
     SegmentBar,
     button,
     chip,
@@ -113,10 +113,8 @@ class StudyPage(Page):
                                  "Record a session you did without the timer"))
         outer.addWidget(header)
 
-        top = QGridLayout()
-        top.setHorizontalSpacing(16)
-        top.setVerticalSpacing(16)
-        outer.addLayout(top)
+        top = ResponsiveGrid((0, 1 << 20))  # two columns when both cards fit, otherwise stacked
+        outer.addWidget(top)
 
         # -- timer card
         self.timer_card = Card("Focus timer", "study")
@@ -212,7 +210,7 @@ class StudyPage(Page):
         self.notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.notice.hide()
         self.timer_card.body.addWidget(self.notice)
-        top.addWidget(self.timer_card, 0, 0)
+        top.add(self.timer_card)
 
         # -- stats card
         self.stats_card = Card("This week", "insights")
@@ -224,9 +222,7 @@ class StudyPage(Page):
         self.stats_card.body.addWidget(self.week_chart, 1)
         self.subject_line = label("", "caption", wrap=True)
         self.stats_card.body.addWidget(self.subject_line)
-        top.addWidget(self.stats_card, 0, 1)
-        top.setColumnStretch(0, 1)
-        top.setColumnStretch(1, 1)
+        top.add(self.stats_card)
 
         # -- history
         self.history_card = Card("Recent sessions", "clock")
@@ -565,11 +561,12 @@ class StudyPage(Page):
         if on == self._focus_mode:
             return
         self._focus_mode = on
+        # A temporary fold: the sidebar preference the user saved is left alone.
         if on:
             self._was_collapsed = self.main._collapsed
-            self.main.set_sidebar_collapsed(True)
+            self.main.set_sidebar_collapsed(True, remember=False)
         elif not getattr(self, "_was_collapsed", False):
-            self.main.set_sidebar_collapsed(False)
+            self.main.set_sidebar_collapsed(False, remember=False)
         for w in (self.stats_card, self.history_card):
             w.setVisible(not on)
         self.focus_mode_btn.setText("Leave focus mode" if on else "Focus mode")

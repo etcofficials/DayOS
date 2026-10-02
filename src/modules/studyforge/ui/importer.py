@@ -410,7 +410,10 @@ class CbseSetupDialog(FormDialog):
         self.session = QLineEdit()
         self.session.setPlaceholderText("Your academic session, e.g. 2026–27")
         self.add_row("Session", self.session)
-        grid = QGridLayout()
+        # A widget (not a bare layout) in the form row, so the rows grow once styling sets their height.
+        subjects_box = QWidget()
+        grid = QGridLayout(subjects_box)
+        grid.setContentsMargins(0, 0, 0, 0)
         self.subjects: dict[str, QCheckBox] = {}
         self.dates: dict[str, OptionalDate] = {}
         for r, name in enumerate(CBSE10_SUBJECTS):
@@ -421,7 +424,7 @@ class CbseSetupDialog(FormDialog):
             self.dates[name] = od
             grid.addWidget(cb, r, 0)
             grid.addWidget(od, r, 1)
-        self.add_row("Subjects", grid)
+        self.add_row("Subjects", subjects_box)
         self.maths = QComboBox()
         self.maths.addItems(MATHS_VARIANTS)
         self.add_row("Mathematics", self.maths)

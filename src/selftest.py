@@ -75,11 +75,11 @@ def run(window, phase: str, done: Callable[[int], None]) -> None:
             for key in keys:
                 window.navigate(key)
                 _wait(250)
-                if window.stack.currentWidget() is not window.page(key):
+                if window.current_page() is not window.page(key):
                     return False
             window.navigate("today")
             _wait(250)
-            return window.stack.currentWidget() is window.pages["today"]
+            return window.current_page() is window.pages["today"]
 
         def themes() -> bool:
             from src.ui.theme import theme
